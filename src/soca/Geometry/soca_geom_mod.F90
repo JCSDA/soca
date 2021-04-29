@@ -92,6 +92,8 @@ subroutine geom_init(self, f_conf, f_comm)
   character(len=:), allocatable :: str
   logical :: full_init = .false.
 
+  real(kind_real), allocatable :: rnd_geom(:,:)
+
   ! MPI communicator
   self%f_comm = f_comm
 
@@ -111,6 +113,10 @@ subroutine geom_init(self, f_conf, f_comm)
   ! Read the geometry from file by default,
   ! skip this step if a full init is required
   if ( .not. full_init) call geom_read(self)
+
+  allocate(rnd_geom, mold=self%lon)
+  call random_number(rnd_geom)
+  self%lon  = self%lon + 0.01*rnd_geom
 
   ! Fill halo
   call mpp_update_domains(self%lon, self%Domain%mpp_domain)
