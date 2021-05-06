@@ -90,7 +90,9 @@ subroutine soca_initialize_integration(self, flds)
     case ("uocn")
       self%mom6_config%MOM_CSp%u = real(field%val, kind=8)
     case ("vocn")
-      self%mom6_config%MOM_CSp%v = real(field%val, kind=8)
+       self%mom6_config%MOM_CSp%v = real(field%val, kind=8)
+    case ("ssh")
+      self%mom6_config%MOM_CSp%ave_ssh_ibc = real(field%val(:,:,1), kind=8)
     end select
 
     ! update forcing
@@ -224,7 +226,9 @@ subroutine soca_finalize_integration(self, flds)
     case ("uocn")
       self%mom6_config%MOM_CSp%u = real(field%val, kind=8)
     case ("vocn")
-      self%mom6_config%MOM_CSp%v = real(field%val, kind=8)
+       self%mom6_config%MOM_CSp%v = real(field%val, kind=8)
+    case ("ssh")
+      self%mom6_config%MOM_CSp%ave_ssh_ibc = real(field%val(:,:,1), kind=8)
     end select
   end do
 
