@@ -1,4 +1,4 @@
-! (C) Copyright 2017-2019 UCAR
+! (C) Copyright 2017-2020 UCAR
 !
 ! This software is licensed under the terms of the Apache Licence Version 2.0
 ! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -7,11 +7,14 @@
 
 module soca_model_mod
 
+use fckit_mpi_module, only: fckit_mpi_comm
 use fms_io_mod, only : fms_io_init, fms_io_exit
 use kinds, only: kind_real
+use soca_geom_mod, only: soca_geom
 use soca_mom6, only: soca_mom6_config, soca_mom6_init, soca_mom6_end
 use soca_utils, only: soca_str2int
-use soca_fields_mod, only: soca_field
+use soca_state_mod
+use soca_fields_mod
 use datetime_mod, only: datetime, datetime_to_string
 use mpp_domains_mod, only : mpp_update_domains
 use time_manager_mod, only : time_type, print_time, print_date, set_date
@@ -33,8 +36,6 @@ public :: soca_delete
 
 !> Fortran derived type to hold configuration data for the model
 type :: soca_model
-   integer :: nx                !< Zonal grid dimension
-   integer :: ny                !< Meridional grid dimension
    integer :: advance_mom6      !< call mom6 step if true
    real(kind=kind_real) :: dt0  !< dimensional time (seconds)
    type(soca_mom6_config) :: mom6_config  !< MOM6 data structure
@@ -47,9 +48,11 @@ contains
 
 ! ------------------------------------------------------------------------------
 !> Initialize model's data structure
-subroutine soca_setup(self)
+subroutine soca_setup(self, geom)
   type(soca_model), intent(inout) :: self
+  type(soca_geom),     intent(in) :: geom
 
+  self%mom6_config%f_comm = geom%f_comm
   call soca_mom6_init(self%mom6_config)
 
 end subroutine soca_setup
@@ -58,62 +61,66 @@ end subroutine soca_setup
 !> Prepare MOM6 integration
 subroutine soca_initialize_integration(self, flds)
   type(soca_model), intent(inout) :: self
-  type(soca_field), intent(inout) :: flds
+  type(soca_state), intent(inout) :: flds
+  type(soca_field), pointer :: field
 
-  integer :: isc, iec, jsc, jec
-  type(time_type) :: ocean_time  ! The ocean model's clock.
-  integer :: year, month, day, hour, minute, second
-  character(len=20) :: strdate
-  character(len=1024) :: buf
+  integer :: i
 
-  ! Update halo
-  call mpp_update_domains(flds%tocn, flds%geom%Domain%mpp_domain)
-  call mpp_update_domains(flds%socn, flds%geom%Domain%mpp_domain)
+  ! for each field
+  do i=1,size(flds%fields)
+    call flds%get(flds%fields(i)%name, field)
 
-  ! Impose bounds to T & S
-  ! TODO: Replace by a change of variable.
-  if ( self%tocn_minmax(1) /= real(-999., kind=8) ) &
-    where( flds%tocn < self%tocn_minmax(1) ) flds%tocn = self%tocn_minmax(1)
-  if ( self%tocn_minmax(2) /= real(-999., kind=8) ) &
-    where( flds%tocn > self%tocn_minmax(2) ) flds%tocn = self%tocn_minmax(2)
-  if ( self%socn_minmax(1) /= real(-999., kind=8) ) &
-    where( flds%socn < self%socn_minmax(1) ) flds%socn = self%socn_minmax(1)
-  if ( self%socn_minmax(2) /= real(-999., kind=8) ) &
-    where( flds%socn > self%socn_minmax(2) ) flds%socn = self%socn_minmax(2)
+    ! Update halos
+    call mpp_update_domains(field%val, flds%geom%Domain%mpp_domain)
 
-  ! Update MOM's T and S to soca's
-  self%mom6_config%MOM_CSp%T = real(flds%tocn, kind=8)
-  self%mom6_config%MOM_CSp%S = real(flds%socn, kind=8)
+    ! impose bounds, and set MOM6 state
+    select case (field%name)
+    case ("tocn")
+      if ( self%tocn_minmax(1) /= real(-999., kind=8) ) &
+        where( field%val < self%tocn_minmax(1) ) field%val = self%tocn_minmax(1)
+      if ( self%tocn_minmax(2) /= real(-999., kind=8) ) &
+        where( field%val > self%tocn_minmax(2) ) field%val = self%tocn_minmax(2)
+      self%mom6_config%MOM_CSp%T = real(field%val, kind=8)
+    case ("socn")
+      if ( self%socn_minmax(1) /= real(-999., kind=8) ) &
+        where( field%val < self%socn_minmax(1) ) field%val = self%socn_minmax(1)
+      if ( self%socn_minmax(2) /= real(-999., kind=8) ) &
+        where( field%val > self%socn_minmax(2) ) field%val = self%socn_minmax(2)
+      self%mom6_config%MOM_CSp%S = real(field%val, kind=8)
+    case ("uocn")
+      self%mom6_config%MOM_CSp%u = real(field%val, kind=8)
+    case ("vocn")
+      self%mom6_config%MOM_CSp%v = real(field%val, kind=8)
+    end select
 
-  ! Update soca forcing
-  call flds%ocnsfc%getforcing(self%mom6_config%fluxes)
-
+    ! update forcing
+    select case(field%name)
+    case ("sw")
+      field%val(:,:,1) = - real(self%mom6_config%fluxes%sw, kind=kind_real)
+    case ("lw")
+      field%val(:,:,1) = - real(self%mom6_config%fluxes%lw, kind=kind_real)
+    case ("lhf")
+      field%val(:,:,1) = - real(self%mom6_config%fluxes%latent, kind=kind_real)
+    case ("shf")
+      field%val(:,:,1) = - real(self%mom6_config%fluxes%sens, kind=kind_real)
+    case ("us")
+      field%val(:,:,1) =   real(self%mom6_config%fluxes%ustar, kind=kind_real)
+    end select
+  end do
 end subroutine soca_initialize_integration
 
 ! ------------------------------------------------------------------------------
 !> Advance MOM6 one baroclinic time step
 subroutine soca_propagate(self, flds, fldsdate)
   type(soca_model), intent(inout) :: self
-  type(soca_field), intent(inout) :: flds
-  type(datetime), intent(in):: fldsdate
+  type(soca_state), intent(inout) :: flds
+  type(datetime),      intent(in) :: fldsdate
 
-  integer :: isc, iec, jsc, jec
+  type(soca_field), pointer :: field
+
   type(time_type) :: ocean_time  ! The ocean model's clock.
-  integer :: year, month, day, hour, minute, second
+  integer :: year, month, day, hour, minute, second, i
   character(len=20) :: strdate
-  character(len=1024) :: buf
-
-  ! Update halo
-  call mpp_update_domains(flds%tocn, flds%geom%Domain%mpp_domain)
-  call mpp_update_domains(flds%socn, flds%geom%Domain%mpp_domain)
-
-  ! Update MOM's T and S to soca's
-  self%mom6_config%MOM_CSp%T = real(flds%tocn, kind=8)
-  self%mom6_config%MOM_CSp%S = real(flds%socn, kind=8)
-
-  ! Update forcing
-  ! TODO: pass forcing back to MOM, line below doesn't do anything.
-  !call flds%ocnsfc%pushforcing(self%mom6_config%fluxes)
 
   ! Set ocean clock
   call datetime_to_string(fldsdate, strdate)
@@ -155,46 +162,71 @@ subroutine soca_propagate(self, flds, fldsdate)
   self%mom6_config%Time = ocean_time
 
   ! Update soca fields
-  flds%tocn = real(self%mom6_config%MOM_CSp%T, kind=kind_real)
-  flds%socn = real(self%mom6_config%MOM_CSp%S, kind=kind_real)
-  flds%hocn = real(self%mom6_config%MOM_CSp%h, kind=kind_real)
-  flds%ssh = real(self%mom6_config%MOM_CSp%ave_ssh_ibc, kind=kind_real)
-
-  ! Update soca forcing
-  call flds%ocnsfc%getforcing(self%mom6_config%fluxes)
-
+  do i=1,size(flds%fields)
+    field => flds%fields(i)
+    select case(field%name)
+    case ("tocn")
+      field%val = real(self%mom6_config%MOM_CSp%T, kind=kind_real)
+    case ("socn")
+      field%val = real(self%mom6_config%MOM_CSp%S, kind=kind_real)
+    case ("hocn")
+      field%val = real(self%mom6_config%MOM_CSp%h, kind=kind_real)
+    case ("ssh")
+      field%val(:,:,1) = real(self%mom6_config%MOM_CSp%ave_ssh_ibc, kind=kind_real)
+    case ("uocn")
+      field%val = real(self%mom6_config%MOM_CSp%u, kind=kind_real)
+    case ("vocn")
+      field%val = real(self%mom6_config%MOM_CSp%v, kind=kind_real)
+    case ("sw")
+      field%val(:,:,1) = - real(self%mom6_config%fluxes%sw, kind=kind_real)
+    case ("lw")
+      field%val(:,:,1) = - real(self%mom6_config%fluxes%lw, kind=kind_real)
+    case ("lhf")
+      field%val(:,:,1) = - real(self%mom6_config%fluxes%latent, kind=kind_real)
+    case ("shf")
+      field%val(:,:,1) = - real(self%mom6_config%fluxes%sens, kind=kind_real)
+    case ("us")
+      field%val(:,:,1) = real(self%mom6_config%fluxes%ustar, kind=kind_real)
+    end select
+  end do
 end subroutine soca_propagate
 
 ! ------------------------------------------------------------------------------
 !> Finalize MOM6 integration: Update mom6's state and checkpoint
 subroutine soca_finalize_integration(self, flds)
   type(soca_model), intent(inout) :: self
-  type(soca_field), intent(inout) :: flds
+  type(soca_state), intent(inout) :: flds
 
-  integer :: isc, iec, jsc, jec
-  type(time_type) :: ocean_time  ! The ocean model's clock.
-  integer :: year, month, day, hour, minute, second
-  character(len=20) :: strdate
-  character(len=1024) :: buf
+  type(soca_field), pointer :: field
+  integer :: i
 
-  ! Update halo
-  call mpp_update_domains(flds%tocn, flds%geom%Domain%mpp_domain)
-  call mpp_update_domains(flds%socn, flds%geom%Domain%mpp_domain)
+  ! for each field
+  do i=1,size(flds%fields)
+    field => flds%fields(i)
 
-  ! Impose bounds to T & S
-  ! TODO: Replace by a change of variable.
-  if ( self%tocn_minmax(1) /= real(-999., kind=8) ) &
-    where( flds%tocn < self%tocn_minmax(1) ) flds%tocn = self%tocn_minmax(1)
-  if ( self%tocn_minmax(2) /= real(-999., kind=8) ) &
-    where( flds%tocn > self%tocn_minmax(2) ) flds%tocn = self%tocn_minmax(2)
-  if ( self%socn_minmax(1) /= real(-999., kind=8) ) &
-    where( flds%socn < self%socn_minmax(1) ) flds%socn = self%socn_minmax(1)
-  if ( self%socn_minmax(2) /= real(-999., kind=8) ) &
-    where( flds%socn > self%socn_minmax(2) ) flds%socn = self%socn_minmax(2)
+    ! update halos
+    call mpp_update_domains(field%val, flds%geom%Domain%mpp_domain)
 
-  ! Update MOM's T and S to soca's
-  self%mom6_config%MOM_CSp%T = real(flds%tocn, kind=8)
-  self%mom6_config%MOM_CSp%S = real(flds%socn, kind=8)
+    ! impose bounds and update MOM6
+    select case(field%name)
+    case ("tocn")
+      if ( self%tocn_minmax(1) /= real(-999., kind=8) ) &
+        where( field%val < self%tocn_minmax(1) ) field%val = self%tocn_minmax(1)
+      if ( self%tocn_minmax(2) /= real(-999., kind=8) ) &
+        where( field%val > self%tocn_minmax(2) ) field%val = self%tocn_minmax(2)
+      self%mom6_config%MOM_CSp%T = real(field%val, kind=8)
+    case ("socn")
+      if ( self%socn_minmax(1) /= real(-999., kind=8) ) &
+        where( field%val < self%socn_minmax(1) ) field%val = self%socn_minmax(1)
+      if ( self%socn_minmax(2) /= real(-999., kind=8) ) &
+        where( field%val > self%socn_minmax(2) ) field%val = self%socn_minmax(2)
+      self%mom6_config%MOM_CSp%S = real(field%val, kind=8)
+    case ("uocn")
+      self%mom6_config%MOM_CSp%u = real(field%val, kind=8)
+    case ("vocn")
+      self%mom6_config%MOM_CSp%v = real(field%val, kind=8)
+    end select
+  end do
 
   ! Save MOM restarts with updated SOCA fields
   call save_restart(self%mom6_config%dirs%restart_output_dir, &

@@ -1,19 +1,21 @@
-! (C) Copyright 2017-2019 UCAR
+! (C) Copyright 2017-2020 UCAR
 !
 ! This software is licensed under the terms of the Apache Licence Version 2.0
 ! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
 module soca_utils
 
+use atlas_module, only: atlas_geometry, atlas_indexkdtree
 use netcdf
 use kinds, only: kind_real
 use gsw_mod_toolbox, only : gsw_rho, gsw_sa_from_sp, gsw_ct_from_pt, gsw_mlp
+use fckit_exception_module, only: fckit_exception
 
 implicit none
 
 private
-public :: write2pe, htoz, soca_str2int, soca_adjust, &
-          soca_rho, soca_diff, soca_mld, nc_check
+public :: write2pe, soca_str2int, soca_adjust, &
+          soca_rho, soca_diff, soca_mld, nc_check, soca_remap_idw
 
 ! ------------------------------------------------------------------------------
 contains
@@ -23,7 +25,7 @@ contains
 
 elemental function soca_rho(sp, pt, p, lon, lat)
   real(kind=kind_real), intent(in)  :: pt, sp, p, lon, lat
-  real(kind=kind_real) :: sa, ct, lon_rot, soca_rho, soca_mld
+  real(kind=kind_real) :: sa, ct, lon_rot, soca_rho
 
   !Rotate longitude if necessary
   lon_rot = lon
@@ -95,21 +97,6 @@ end subroutine soca_diff
 
 ! ------------------------------------------------------------------------------
 
-subroutine htoz(h, z)
-  real(kind=kind_real),  intent(in) :: h(:) ! Layer thickness
-  real(kind=kind_real), intent(out) :: z(:) ! Mid-layer depth
-
-  integer :: nlev, ilev
-
-  nlev = size(h,1)
-  z(1)=0.5_kind_real*h(1)
-  do ilev = 2, nlev
-     z(ilev)=sum(h(1:ilev-1))+0.5_kind_real*h(ilev)
-  end do
-end subroutine htoz
-
-! ------------------------------------------------------------------------------
-
 subroutine write2pe(vec,varname,filename,append)
 
   real(kind=kind_real), intent(in) :: vec(:)
@@ -177,4 +164,79 @@ subroutine soca_str2int(str, int)
   read(str,*)  int
 end subroutine soca_str2int
 
+! ------------------------------------------------------------------------------
+! inverse distance weighted remaping (modified Shepard's method)
+subroutine soca_remap_idw(lon_src, lat_src, data_src, lon_dst, lat_dst, data_dst)
+  real(kind_real), intent(in) :: lon_src(:)
+  real(kind_real), intent(in) :: lat_src(:)
+  real(kind_real), intent(in) :: data_src(:)
+  real(kind_real), intent(in) :: lon_dst(:,:)
+  real(kind_real), intent(in) :: lat_dst(:,:)
+  real(kind_real), intent(inout) :: data_dst(:,:)
+
+  integer, parameter :: nn_max = 10
+  real(kind_real), parameter :: idw_pow = 2.0
+
+  integer :: idx(nn_max)
+  integer :: n_src, i, j, n, nn
+  real(kind_real) :: dmax, r, w(nn_max),  dist(nn_max)
+  type(atlas_geometry) :: ageometry
+  type(atlas_indexkdtree) :: kd
+
+  ! create kd tree
+  n_src = size(lon_src)
+  ageometry = atlas_geometry("UnitSphere")
+  kd = atlas_indexkdtree(ageometry)
+  call kd%reserve(n_src)
+  call kd%build(n_src, lon_src, lat_src)
+
+  ! remap
+  do i = 1, size(data_dst, dim=1)
+    do j = 1, size(data_dst, dim=2)
+
+      ! get nn_max nearest neighbors
+      call kd%closestPoints(lon_dst(i,j), lat_dst(i,j), nn_max, idx)
+
+      ! get distances. Add a small offset so there is never any 0 values
+      do n=1,nn_max
+        dist(n) = ageometry%distance(lon_dst(i,j), lat_dst(i,j), &
+                                     lon_src(idx(n)), lat_src(idx(n)))
+      end do
+      dist = dist + 1e-6
+
+      ! truncate the list if the last points are the same distance.
+      ! This is needed to ensure reproducibility across machines.
+      ! The last point is always removed (becuase we don't know if it would
+      ! have been identical to the one after it)
+      nn=nn_max-1
+      do n=nn_max-1, 1, -1
+        if (dist(n) /= dist(nn_max)) exit
+        nn = n-1
+      end do
+      if (nn <= 0 ) call fckit_exception%abort( &
+        "No valid points found in IDW remapping, uh oh.")
+
+      ! calculate weights based on inverse distance
+      dmax = maxval(dist(1:nn))
+      w = 0.0
+      do n=1,nn
+        w(n) = ((dmax-dist(n)) / (dmax*dist(n))) ** idw_pow
+      end do
+      w = w / sum(w)
+
+      ! calculate final value
+      r = 0.0
+      do n=1,nn
+        r = r + data_src(idx(n))*w(n)
+      end do
+      data_dst(i,j) = r
+
+    end do
+  end do
+
+  ! done, cleanup
+  call kd%final()
+end subroutine soca_remap_idw
+
+! ------------------------------------------------------------------------------
 end module soca_utils

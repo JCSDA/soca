@@ -1,12 +1,14 @@
-! (C) Copyright 2017-2019 UCAR
+! (C) Copyright 2017-2020 UCAR
 !
 ! This software is licensed under the terms of the Apache Licence Version 2.0
 ! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
 
 module soca_geom_mod_c
 
+use atlas_module, only: atlas_fieldset, atlas_functionspace_pointcloud
 use iso_c_binding
 use fckit_configuration_module, only: fckit_configuration
+use fckit_mpi_module,           only: fckit_mpi_comm
 use soca_geom_mod, only: soca_geom
 
 implicit none
@@ -31,10 +33,11 @@ contains
 
 ! ------------------------------------------------------------------------------
 !> Setup geometry object
-subroutine c_soca_geo_setup(c_key_self, c_conf) bind(c,name='soca_geo_setup_f90')
+subroutine c_soca_geo_setup(c_key_self, c_conf, c_comm) bind(c,name='soca_geo_setup_f90')
 
-  integer(c_int), intent(inout) :: c_key_self
-  type(c_ptr),       intent(in) :: c_conf
+  integer(c_int),  intent(inout) :: c_key_self
+  type(c_ptr),        intent(in) :: c_conf
+  type(c_ptr), value, intent(in) :: c_comm
 
   type(soca_geom), pointer :: self
 
@@ -42,22 +45,73 @@ subroutine c_soca_geo_setup(c_key_self, c_conf) bind(c,name='soca_geo_setup_f90'
   call soca_geom_registry%add(c_key_self)
   call soca_geom_registry%get(c_key_self,self)
 
-  call self%init(fckit_configuration(c_conf))
+  call self%init(fckit_configuration(c_conf), fckit_mpi_comm(c_comm) )
 
 end subroutine c_soca_geo_setup
+
+! --------------------------------------------------------------------------------------------------
+!> Set ATLAS lonlat fieldset
+subroutine c_soca_geo_set_atlas_lonlat(c_key_self, c_afieldset)  bind(c,name='soca_geo_set_atlas_lonlat_f90')
+
+  integer(c_int), intent(in) :: c_key_self
+  type(c_ptr), intent(in), value :: c_afieldset
+
+  type(soca_geom), pointer :: self
+  type(atlas_fieldset) :: afieldset
+
+  call soca_geom_registry%get(c_key_self,self)
+  afieldset = atlas_fieldset(c_afieldset)
+
+  call self%set_atlas_lonlat(afieldset)
+
+end subroutine c_soca_geo_set_atlas_lonlat
+
+! --------------------------------------------------------------------------------------------------
+!> Set ATLAS functionspace pointer
+subroutine c_soca_geo_set_atlas_functionspace_pointer(c_key_self,c_afunctionspace) &
+ & bind(c,name='soca_geo_set_atlas_functionspace_pointer_f90')
+
+  integer(c_int), intent(in)     :: c_key_self
+  type(c_ptr), intent(in), value :: c_afunctionspace
+
+  type(soca_geom),pointer :: self
+
+  call soca_geom_registry%get(c_key_self,self)
+
+  self%afunctionspace = atlas_functionspace_pointcloud(c_afunctionspace)
+
+end subroutine c_soca_geo_set_atlas_functionspace_pointer
+
+! --------------------------------------------------------------------------------------------------
+!> Fill ATLAS fieldset
+subroutine c_soca_geo_fill_atlas_fieldset(c_key_self, c_afieldset) &
+ & bind(c,name='soca_geo_fill_atlas_fieldset_f90')
+
+  integer(c_int),     intent(in) :: c_key_self
+  type(c_ptr), value, intent(in) :: c_afieldset
+
+  type(soca_geom), pointer :: self
+  type(atlas_fieldset) :: afieldset
+
+  call soca_geom_registry%get(c_key_self,self)
+  afieldset = atlas_fieldset(c_afieldset)
+
+  call self%fill_atlas_fieldset(afieldset)
+
+end subroutine c_soca_geo_fill_atlas_fieldset
 
 ! ------------------------------------------------------------------------------
 !> Clone geometry object
 subroutine c_soca_geo_clone(c_key_self, c_key_other) bind(c,name='soca_geo_clone_f90')
 
-  integer(c_int), intent(in   ) :: c_key_self
-  integer(c_int), intent(inout) :: c_key_other
+  integer(c_int), intent(inout) :: c_key_self
+  integer(c_int), intent(in)    :: c_key_other
 
   type(soca_geom), pointer :: self, other
 
-  call soca_geom_registry%add(c_key_other)
-  call soca_geom_registry%get(c_key_other, other)
-  call soca_geom_registry%get(c_key_self , self )
+  call soca_geom_registry%add(c_key_self)
+  call soca_geom_registry%get(c_key_self, self)
+  call soca_geom_registry%get(c_key_other, other )
 
   call self%clone(other)
 
@@ -65,10 +119,9 @@ end subroutine c_soca_geo_clone
 
 ! ------------------------------------------------------------------------------
 !> Generate grid
-subroutine c_soca_geo_gridgen(c_key_self, c_conf) bind(c,name='soca_geo_gridgen_f90')
+subroutine c_soca_geo_gridgen(c_key_self) bind(c,name='soca_geo_gridgen_f90')
 
   integer(c_int), intent(inout) :: c_key_self
-  type(c_ptr),       intent(in) :: c_conf
 
   type(soca_geom), pointer :: self
 
@@ -93,17 +146,22 @@ subroutine c_soca_geo_delete(c_key_self) bind(c,name='soca_geo_delete_f90')
 end subroutine c_soca_geo_delete
 
 ! ------------------------------------------------------------------------------
-!> Dump basic geometry info in file and std output
-subroutine c_soca_geo_info(c_key_self) bind(c,name='soca_geo_info_f90')
+!> return begin and end of local geometry
+subroutine c_soca_geo_start_end(c_key_self, ist, iend, jst, jend) bind(c, name='soca_geo_start_end_f90')
 
-  integer(c_int), intent(in   ) :: c_key_self
+  integer(c_int), intent( in) :: c_key_self
+  integer(c_int), intent(out) :: ist, iend, jst, jend
 
   type(soca_geom), pointer :: self
+  call soca_geom_registry%get(c_key_self, self)
 
-  call soca_geom_registry%get(c_key_self , self)
-  call self%print()
+  ist  = self%isc
+  iend = self%iec
+  jst  = self%jsc
+  jend = self%jec
 
-end subroutine c_soca_geo_info
+end subroutine c_soca_geo_start_end
+
 
 ! ------------------------------------------------------------------------------
 

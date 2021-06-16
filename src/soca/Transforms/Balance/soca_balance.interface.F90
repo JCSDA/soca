@@ -1,4 +1,4 @@
-! (C) Copyright 2017-2019 UCAR
+! (C) Copyright 2017-2020 UCAR
 !
 ! This software is licensed under the terms of the Apache Licence Version 2.0
 ! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -7,8 +7,12 @@ module soca_balance_mod_c
 
 use iso_c_binding
 use fckit_configuration_module, only: fckit_configuration
-use soca_fields_mod, only: soca_field
-use soca_fields_mod_c, only: soca_field_registry
+use soca_geom_mod
+use soca_geom_mod_c
+use soca_state_mod
+use soca_state_reg
+use soca_increment_mod
+use soca_increment_reg
 use soca_balance_mod, only: soca_balance_config, &
                             soca_balance_setup, soca_balance_delete, &
                             soca_balance_mult, soca_balance_multad, &
@@ -36,22 +40,25 @@ contains
 
 ! ------------------------------------------------------------------------------
 !> Constructor for D (standard deviation of background error)
-subroutine c_soca_balance_setup(c_key_self, c_conf, c_key_traj) &
+subroutine c_soca_balance_setup(c_key_self, c_conf, c_key_traj, c_key_geom) &
   bind(c,name='soca_balance_setup_f90')
 
   integer(c_int), intent(inout) :: c_key_self   !< The D structure
   type(c_ptr),       intent(in) :: c_conf       !< The configuration
   integer(c_int), intent(in)    :: c_key_traj   !< Background field
+  integer(c_int), intent(in)    :: c_key_geom   !< Geometry
 
-  type(soca_field), pointer :: traj
+  type(soca_state), pointer :: traj
   type(soca_balance_config), pointer :: self
+  type(soca_geom), pointer :: geom
 
   call soca_balance_registry%init()
   call soca_balance_registry%add(c_key_self)
   call soca_balance_registry%get(c_key_self, self)
-  call soca_field_registry%get(c_key_traj, traj)
+  call soca_state_registry%get(c_key_traj, traj)
+  call soca_geom_registry%get(c_key_geom, geom)
 
-  call soca_balance_setup(fckit_configuration(c_conf), self, traj)
+  call soca_balance_setup(fckit_configuration(c_conf), self, traj, geom)
 
 end subroutine c_soca_balance_setup
 
@@ -78,12 +85,12 @@ subroutine c_soca_balance_mult_f90(c_key_self, c_key_a, c_key_m)&
   integer(c_int), intent(in) :: c_key_m     !<    "   to Increment out
   integer(c_int), intent(in) :: c_key_self
 
-  type(soca_field), pointer :: dxa
-  type(soca_field), pointer :: dxm
+  type(soca_increment), pointer :: dxa
+  type(soca_increment), pointer :: dxm
   type(soca_balance_config), pointer :: self
 
-  call soca_field_registry%get(c_key_a,dxa)
-  call soca_field_registry%get(c_key_m,dxm)
+  call soca_increment_registry%get(c_key_a,dxa)
+  call soca_increment_registry%get(c_key_m,dxm)
   call soca_balance_registry%get(c_key_self,self)
 
   !< Computes dxm = K dxa
@@ -100,12 +107,12 @@ subroutine c_soca_balance_multinv_f90(c_key_self, c_key_m, c_key_a)&
   integer(c_int), intent(in) :: c_key_m     !<    "   to Increment out
   integer(c_int), intent(in) :: c_key_self
 
-  type(soca_field), pointer :: dxa
-  type(soca_field), pointer :: dxm
+  type(soca_increment), pointer :: dxa
+  type(soca_increment), pointer :: dxm
   type(soca_balance_config), pointer :: self
 
-  call soca_field_registry%get(c_key_a,dxa)
-  call soca_field_registry%get(c_key_m,dxm)
+  call soca_increment_registry%get(c_key_a,dxa)
+  call soca_increment_registry%get(c_key_m,dxm)
   call soca_balance_registry%get(c_key_self,self)
 
   !< Computes dxa = K^-1 dxm
@@ -122,12 +129,12 @@ subroutine c_soca_balance_multad_f90(c_key_self, c_key_m, c_key_a)&
   integer(c_int), intent(in) :: c_key_m     !<    "   to Increment out
   integer(c_int), intent(in) :: c_key_self
 
-  type(soca_field), pointer :: dxa
-  type(soca_field), pointer :: dxm
+  type(soca_increment), pointer :: dxa
+  type(soca_increment), pointer :: dxm
   type(soca_balance_config), pointer :: self
 
-  call soca_field_registry%get(c_key_a,dxa)
-  call soca_field_registry%get(c_key_m,dxm)
+  call soca_increment_registry%get(c_key_a,dxa)
+  call soca_increment_registry%get(c_key_m,dxm)
   call soca_balance_registry%get(c_key_self,self)
 
   !< Computes dxa = K^T dxm
@@ -144,12 +151,12 @@ subroutine c_soca_balance_multinvad_f90(c_key_self, c_key_a, c_key_m)&
   integer(c_int), intent(in) :: c_key_m     !<    "   to Increment out
   integer(c_int), intent(in) :: c_key_self
 
-  type(soca_field), pointer :: dxa
-  type(soca_field), pointer :: dxm
+  type(soca_increment), pointer :: dxa
+  type(soca_increment), pointer :: dxm
   type(soca_balance_config), pointer :: self
 
-  call soca_field_registry%get(c_key_a,dxa)
-  call soca_field_registry%get(c_key_m,dxm)
+  call soca_increment_registry%get(c_key_a,dxa)
+  call soca_increment_registry%get(c_key_m,dxm)
   call soca_balance_registry%get(c_key_self,self)
 
   !< Computes dxm = (K^-1)^T dxa

@@ -1,4 +1,4 @@
-! (C) Copyright 2017-2019 UCAR
+! (C) Copyright 2017-2020 UCAR
 !
 ! This software is licensed under the terms of the Apache Licence Version 2.0
 ! which can be obtained at http://www.apache.org/licenses/LICENSE-2.0.
@@ -7,8 +7,12 @@ module soca_bkgerrfilt_mod_c
 
 use iso_c_binding
 use fckit_configuration_module, only: fckit_configuration
-use soca_fields_mod, only: soca_field, copy, delete
-use soca_fields_mod_c, only: soca_field_registry
+use soca_geom_mod
+use soca_geom_mod_c
+use soca_increment_mod
+use soca_increment_reg
+use soca_state_mod
+use soca_state_reg
 use soca_bkgerrfilt_mod, only: soca_bkgerrfilt_config, &
                                soca_bkgerrfilt_setup, soca_bkgerrfilt_mult
 
@@ -34,22 +38,25 @@ contains
 
 ! ------------------------------------------------------------------------------
 !> Constructor for D (standard deviation of background error)
-subroutine c_soca_bkgerrfilt_setup(c_key_self, c_conf, c_key_bkg) &
+subroutine c_soca_bkgerrfilt_setup(c_key_self, c_conf, c_key_bkg, c_key_geom) &
   bind(c,name='soca_bkgerrfilt_setup_f90')
 
   integer(c_int), intent(inout) :: c_key_self   !< The D structure
   type(c_ptr),       intent(in) :: c_conf       !< The configuration
   integer(c_int), intent(in)    :: c_key_bkg    !< Background field
+  integer(c_int), intent(in)    :: c_key_geom   !< Geometry
 
-  type(soca_field), pointer :: bkg
+  type(soca_state), pointer :: bkg
+  type(soca_geom),  pointer :: geom
   type(soca_bkgerrfilt_config), pointer :: self
 
   call soca_bkgerrfilt_registry%init()
   call soca_bkgerrfilt_registry%add(c_key_self)
   call soca_bkgerrfilt_registry%get(c_key_self, self)
-  call soca_field_registry%get(c_key_bkg, bkg)
+  call soca_state_registry%get(c_key_bkg, bkg)
+  call soca_geom_registry%get(c_key_geom, geom)
 
-  call soca_bkgerrfilt_setup(fckit_configuration(c_conf), self, bkg)
+  call soca_bkgerrfilt_setup(fckit_configuration(c_conf), self, bkg, geom)
 
 end subroutine c_soca_bkgerrfilt_setup
 
@@ -61,8 +68,8 @@ subroutine c_soca_bkgerrfilt_delete(c_key_self) bind(c,name='soca_bkgerrfilt_del
   type(soca_bkgerrfilt_config), pointer :: self
 
   call soca_bkgerrfilt_registry%get(c_key_self, self)
-  if (associated(self%bkg)) nullify(self%bkg)
-  !call delete(self%std_bkgerrfilt)
+  if (associated(self%geom)) nullify(self%geom)
+  call self%filt%delete()
 
   call soca_bkgerrfilt_registry%remove(c_key_self)
 
@@ -77,16 +84,16 @@ subroutine c_soca_bkgerrfilt_mult_f90(c_key_self, c_key_a, c_key_m)&
   integer(c_int), intent(in) :: c_key_m     !<    "   to Increment out
   integer(c_int), intent(in) :: c_key_self
 
-  type(soca_field), pointer :: dxa
-  type(soca_field), pointer :: dxm
+  type(soca_increment), pointer :: dxa
+  type(soca_increment), pointer :: dxm
   type(soca_bkgerrfilt_config), pointer :: self
 
-  call soca_field_registry%get(c_key_a,dxa)
-  call soca_field_registry%get(c_key_m,dxm)
+  call soca_increment_registry%get(c_key_a,dxa)
+  call soca_increment_registry%get(c_key_m,dxm)
   call soca_bkgerrfilt_registry%get(c_key_self,self)
 
   !< Computes dxm = D dxa
-  call copy(dxm, dxa)
+  call dxm%copy(dxa)
   call soca_bkgerrfilt_mult(self, dxa, dxm)
 
 end subroutine c_soca_bkgerrfilt_mult_f90

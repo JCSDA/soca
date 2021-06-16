@@ -1,16 +1,30 @@
-Test     : Increment: 
+Test     : Input Dirac increment: 
 Test     :   Valid time: 2018-04-15T00:00:00Z
-Test     :   cicen   min=   -0.025295   max=    0.000002   mean=   -0.000201
-Test     :   hicen   min=   -0.000121   max=   50.000000   mean=    0.071153
-Test     :    socn   min=   -0.082948   max=    0.049096   mean=    0.000116
-Test     :    tocn   min=   -0.006633   max=    2.809385   mean=    0.010579
-Test     :     ssh   min=   -0.013960   max=    0.021443   mean=    0.000200
+Test     :   cicen   min=    0.000000   max=    0.000000   mean=    0.000000
+Test     :   hicen   min=    0.000000   max=    1.000000   mean=    0.000609
+Test     :    socn   min=    0.000000   max=    1.000000   mean=    0.000024
+Test     :    tocn   min=    0.000000   max=    1.000000   mean=    0.000097
+Test     :     ssh   min=    0.000000   max=    0.000000   mean=    0.000000
 Test     :    hocn   min=    0.000000   max=    0.000000   mean=    0.000000
-Test     : Increment: 
+Test     :     mld   min=    0.000000   max=    0.000000   mean=    0.000000
+Test     : layer_depth   min=    0.000000   max=    0.000000   mean=    0.000000
+Test     : B * Increment: 
 Test     :   Valid time: 2018-04-15T00:00:00Z
-Test     :   cicen   min=    0.000000   max=    1.000000   mean=    0.055709
-Test     :   hicen   min=   -0.000000   max=    1.000000   mean=    0.066851
-Test     :    socn   min=   -0.000000   max=    1.000000   mean=    0.066845
-Test     :    tocn   min=   -0.000000   max=    1.000000   mean=    0.066845
-Test     :     ssh   min=   -0.000000   max=    1.000000   mean=    0.066851
+Test     :   cicen   min=   -0.001746   max=    0.000000   mean=   -0.000009
+Test     :   hicen   min=    0.000000   max=   50.049749   mean=    0.328673
+Test     :    socn   min=   -0.052871   max=    0.506083   mean=    0.001919
+Test     :    tocn   min=   -0.162503   max=    3.680461   mean=    0.014847
+Test     :     ssh   min=   -0.072326   max=    0.029681   mean=   -0.000036
 Test     :    hocn   min=    0.000000   max=    0.000000   mean=    0.000000
+Test     :     mld   min=    0.000000   max=    0.000000   mean=    0.000000
+Test     : layer_depth   min=    0.000000   max=    0.000000   mean=    0.000000
+Test     : Localized Increment: 
+Test     :   Valid time: 2018-04-15T00:00:00Z
+Test     :   cicen   min=    0.000000   max=    0.000000   mean=    0.000000
+Test     :   hicen   min=    0.000000   max=    1.000000   mean=    0.000609
+Test     :    socn   min=    0.000000   max=    1.000000   mean=    0.042310
+Test     :    tocn   min=    0.000000   max=    1.000000   mean=    0.042310
+Test     :     ssh   min=    0.000000   max=    1.000000   mean=    0.042316
+Test     :    hocn   min=    0.000000   max=    0.000000   mean=    0.000000
+Test     :     mld   min=    0.000000   max=    0.000000   mean=    0.000000
+Test     : layer_depth   min=    0.000000   max=    0.000000   mean=    0.000000
