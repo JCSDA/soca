@@ -1,0 +1,17 @@
+schema: ocn_forc
+items:
+  source:
+    validate: [ set-choices, era5]
+  time_window:
+    default: P1D
+    type: formatted_duration
+  file_format:
+    default: netcdf
+  _templates:
+    default:
+      ocn_forc: $(type).$(source).$(time_window).$(date)
+  _archive_path:
+    default:
+      '$(type)/$(experiment)/$(source)/$(time_window)/$(year)-$(month)-$(day)'
+  _kind:
+    default: forcing

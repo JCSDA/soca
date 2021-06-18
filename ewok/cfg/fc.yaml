@@ -1,0 +1,1 @@
+filename: $(current_dir)/$(file_type).$(experiment).fc.{{local_current_cycle}}.$(step).nc

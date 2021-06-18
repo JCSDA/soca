@@ -1,0 +1,1 @@
+filename: $(current_dir)/ocn_forc.{{local_current_cycle}}.nc

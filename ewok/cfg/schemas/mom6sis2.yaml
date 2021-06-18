@@ -1,0 +1,21 @@
+schema: mom6sis2
+items:
+  model:
+    validate: [ set-choices, mom6sis2]
+  domain:
+    default: ocn
+    validate: [ set-choices, ocn, ice]
+  file_type:
+    default: ocn
+    validate: [set-choices, icebergs, ocn, ice]
+    unique: false
+  _combine:
+    default: [ date, step, obs_type, file_type ]
+    unique: false
+  _templates:
+    default:
+      fc: $(model).$(experiment).$(resolution).$(type).$(archive_init_date).$(file_type).$(step)
+      an: $(model).$(experiment).$(resolution).$(type).$(archive_init_date).$(file_type)
+      diag: $(model).$(experiment).$(type).$(obs_type).$(date)
+  # fc_date_rendering:
+  #     default: verification

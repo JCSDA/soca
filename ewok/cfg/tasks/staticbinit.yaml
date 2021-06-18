@@ -1,0 +1,30 @@
+geometry:
+  $(GEOMETRY)
+
+analysis variables: $(an_variables)
+
+background:
+  $(AN_TEMPLATE)
+
+background error:
+  verbosity: main
+  covariance model: SocaError
+  datadir: ./bump
+  method: cor
+  strategy: specific_univariate
+  new_nicas: 1
+  mask_check: 1
+  ntry: 3
+  nrep:  2
+  resol: 6.0
+  network: 1
+  mpicom: 2
+  date: '{{current_cycle}}'
+  corr_scales:
+    ocn:
+      rossby mult: 1.0
+      min grid mult: 1.0
+      min value: 500.0e3 #150.0e3
+    # ice:
+    #   base value: 200.0e3
+  analysis variables: $(an_variables)

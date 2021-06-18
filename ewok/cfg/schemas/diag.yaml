@@ -1,0 +1,13 @@
+schema: diag
+items:
+  obs_type:
+    unique: false
+    lowercase: true
+  file_format:
+    default: ioda
+  _combine:
+    default: [ date, obs_type ]
+    unique: false
+  _archive_path:
+    default:
+      '$(model)/$(type)/$(experiment)/$(init_year)-$(init_month)-$(init_day)'

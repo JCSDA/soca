@@ -1,0 +1,6 @@
+copy_files:
+  directories:
+  - [ $(cfg)/model/diag_table,           diag_table]
+  - [ $(cfg)/model/fields_metadata.yaml, fields_metadata.yaml]
+  - [ $(cfg)/model/godas_sst_bgerr.nc,   godas_sst_bgerr.nc]
+  - [ $(cfg)/model/rossrad.dat,          rossrad.dat]

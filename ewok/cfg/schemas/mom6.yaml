@@ -1,0 +1,17 @@
+schema: mom6
+items:
+  model:
+    validate: [ set-choices, mom6]
+  domain:
+    default: ocn
+    validate: [ set-choices, ocn, ice]
+  _combine:
+    default: [ date, step, obs_type ]
+    unique: false
+  _templates:
+    default:
+      fc: $(model).$(experiment).$(resolution).$(domain).$(type).$(archive_init_date).$(step)
+      an: $(model).$(experiment).$(resolution).$(domain).$(type).$(archive_init_date)
+      diag: $(model).$(experiment).$(type).$(obs_type).$(date)
+  # fc_date_rendering:
+  #     default: verification

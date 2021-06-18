@@ -1,0 +1,7 @@
+frequency: P1D
+type: fc
+
+# needed?
+date: '{{current_cycle}}'
+exp: $(experiment)
+datadir: '$(current_dir)'

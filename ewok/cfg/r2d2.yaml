@@ -1,0 +1,22 @@
+
+
+fetch:
+  an:
+    - external_schemas: [$(cfg)/schemas]
+      file_type: [ocn, ice]
+  fc:
+    - external_schemas: [$(cfg)/schemas]
+      file_type: [ocn, ice]
+  ocn_forc:
+    - external_schemas: [$(cfg)/schemas]
+
+
+store:
+  an:
+    - external_schemas: [$(cfg)/schemas]
+      file_type: [ocn, ice]
+  fc:
+    - external_schemas: [$(cfg)/schemas]
+      file_type: [ocn, ice]
+  diag:
+    - external_schemas: [$(cfg)/schemas]

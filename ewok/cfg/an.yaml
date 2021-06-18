@@ -1,0 +1,4 @@
+filename: $(current_dir)/$(file_type).$(experiment).an.{{local_current_cycle}}.nc
+
+state variables: $(an_variables)
+date: '{{current_cycle}}'

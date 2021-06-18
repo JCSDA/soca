@@ -1,0 +1,12 @@
+SOCA
+1950 1 1 0 0 0
+
+#"ocn.fc.%Y-%m-%dT%H:%M:%SZ.P1D.nc", 1,"days", 1, "days", "time", 1, "days"
+"ocn.fc.P1D.nc", 1,"days", 1, "days", "time"
+#, 1, "days"
+
+"ocean_model", "temp", "temp", "ocn.fc.P1D.nc", "all", "none", "none", 2
+"ocean_model", "salt", "salt", "ocn.fc.P1D.nc", "all", "none", "none", 2
+"ocean_model", "u",    "u",    "ocn.fc.P1D.nc", "all", "none", "none", 2
+"ocean_model", "v",    "v",    "ocn.fc.P1D.nc", "all", "none", "none", 2
+"ocean_model", "ssh",  "ssh",  "ocn.fc.P1D.nc", "all", "none", "none", 2
