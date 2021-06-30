@@ -30,12 +30,13 @@ public :: soca_cov, soca_cov_setup, soca_cov_delete, &
 
 !> Fortran derived type to hold configuration data for the SOCA background/model covariance
 type :: soca_pert
-  real(kind=kind_real) :: T, S, SSH, AICE, HICE, CHL, BIOP
+  real(kind=kind_real) :: T, S, SSH, AICE, HICE, CHL, BIOP, SWH
 end type soca_pert
 
 type :: soca_cov
    type(bump_type),     pointer :: ocean_conv(:)  !< Ocean convolution op from bump
    type(bump_type),     pointer :: seaice_conv(:) !< Seaice convolution op from bump
+   type(bump_type),     pointer :: wav_conv(:)    !< Wav convolution op from bump
    type(soca_state),    pointer :: bkg            !< Background field (or first guess)
    logical                      :: initialized = .false.
    type(soca_pert)              :: pert_scale
@@ -66,7 +67,7 @@ subroutine soca_cov_setup(self, f_conf, geom, bkg, vars)
 
   character(len=3)  :: domain
   integer :: isc, iec, jsc, jec, ivar
-  logical :: init_seaice, init_ocean
+  logical :: init_seaice, init_ocean, init_wav
 
   ! Setup list of variables to apply B on
   self%vars = vars
@@ -79,6 +80,7 @@ subroutine soca_cov_setup(self, f_conf, geom, bkg, vars)
   if (.not. f_conf%get("pert_HICE", self%pert_scale%HICE)) self%pert_scale%HICE = 1.0
   if (.not. f_conf%get("pert_CHL", self%pert_scale%CHL))   self%pert_scale%CHL = 1.0
   if (.not. f_conf%get("pert_BIOP", self%pert_scale%BIOP)) self%pert_scale%BIOP = 1.0
+  if (.not. f_conf%get("pert_SWH", self%pert_scale%SWH))  self%pert_scale%SWH = 1.0
 
   ! Associate background
   self%bkg => bkg
@@ -90,8 +92,11 @@ subroutine soca_cov_setup(self, f_conf, geom, bkg, vars)
   ! Determine what convolution op to initialize
   init_seaice = .false.
   init_ocean = .false.
+  init_wav = .false.
   do ivar = 1, self%vars%nvars()
      select case(trim(self%vars%variable(ivar)))
+     case('swh')
+        init_wav = .true.
      case('cicen','hicen')
         init_seaice = .true.
      case('tocn', 'socn', 'ssh', 'chl', 'biop')
@@ -115,6 +120,13 @@ subroutine soca_cov_setup(self, f_conf, geom, bkg, vars)
      call soca_bump_correlation(self, self%seaice_conv(1), geom, f_conf, domain)
   end if
 
+  ! Initialize wav bump if swh is in self%vars
+  domain = 'wav'
+  allocate(self%wav_conv(1))
+  if (init_wav) then
+     call soca_bump_correlation(self, self%wav_conv(1), geom, f_conf, domain)
+  end if
+
   self%initialized = .true.
 
 end subroutine soca_cov_setup
@@ -128,8 +140,10 @@ subroutine soca_cov_delete(self)
 
   call self%ocean_conv(1)%dealloc()
   call self%seaice_conv(1)%dealloc()
+  call self%wav_conv(1)%dealloc()
   deallocate(self%ocean_conv)
   deallocate(self%seaice_conv)
+  deallocate(self%wav_conv)
   nullify(self%bkg)
   self%initialized = .false.
 
@@ -156,6 +170,8 @@ subroutine soca_cov_C_mult(self, dx)
       conv => self%ocean_conv(1)
     case ('hicen','cicen')
       conv => self%seaice_conv(1)
+    case ('swh')
+      conv => self%wav_conv(1)
     case default
       cycle
     end select
@@ -198,6 +214,9 @@ subroutine soca_cov_sqrt_C_mult(self, dx)
     case ('hicen')
       scale = self%pert_scale%HICE
       conv => self%seaice_conv(1)
+    case('swh')
+      scale = self%pert_scale%SWH
+      conv => self%wav_conv(1)
     case('chl')
       scale = self%pert_scale%CHL
       conv => self%ocean_conv(1)
