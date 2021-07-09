@@ -8,6 +8,7 @@ module soca_bkgerr_mod
 use fckit_configuration_module, only: fckit_configuration
 use datetime_mod, only: datetime
 use kinds, only: kind_real
+use soca_geom_mod
 use soca_fields_mod
 use soca_state_mod
 use soca_increment_mod
@@ -21,7 +22,6 @@ public :: soca_bkgerr_config, &
 
 !> Fortran derived type to hold configuration D
 type :: soca_bkgerr_config
-   type(soca_state),         pointer :: bkg
    type(soca_fields)                 :: std_bkgerr
    type(soca_bkgerr_bounds_type)     :: bounds         ! Bounds for bkgerr
    real(kind=kind_real)              :: std_sst
@@ -35,14 +35,15 @@ contains
 
 ! ------------------------------------------------------------------------------
 !> Setup the static background error
-subroutine soca_bkgerr_setup(f_conf, self, bkg)
+subroutine soca_bkgerr_setup(f_conf, self, bkg, geom)
   type(fckit_configuration),   intent(in) :: f_conf
   type(soca_bkgerr_config), intent(inout) :: self
   type(soca_state),    target, intent(in) :: bkg
+  type(soca_geom),     target, intent(in)  :: geom
 
   type(soca_field), pointer :: field, field_bkg
 
-  integer :: isc, iec, jsc, jec, i
+  integer :: i
   type(datetime) :: vdate
   character(len=800) :: fname = 'soca_bkgerrsoca.nc'
 
@@ -78,25 +79,25 @@ subroutine soca_bkgerr_setup(f_conf, self, bkg)
       field%val(:,:,1) = self%std_sss
   end if
 
-  ! Invent background error for ocnsfc fields: set it
-  ! to 10% of the background for now ...
-  ! TODO: Read background error for ocnsfc from file
+  ! Invent background error for ocnsfc and ocn_bgc fields: 
+  ! set it to 10% or 20% of the background for now ...
+  ! TODO: Read background error for ocnsfc and ocn_bgc from 
+  ! files
   do i=1,size(self%std_bkgerr%fields)
     field => self%std_bkgerr%fields(i)
     select case(field%name)
     case ('sw','lw','lhf','shf','us')
       call bkg%get(field%name, field_bkg)
       field%val = abs(field_bkg%val) * 0.1_kind_real
+    case ('chl','biop')
+      call bkg%get(field%name, field_bkg)
+      field%val = abs(field_bkg%val) * 0.2_kind_real
     end select
   end do
 
-  ! Associate background
-  self%bkg => bkg
-
   ! Indices for compute domain (no halo)
-  isc=bkg%geom%isc; iec=bkg%geom%iec
-  jsc=bkg%geom%jsc; jec=bkg%geom%jec
-  self%isc=isc; self%iec=iec; self%jsc=jsc; self%jec=jec
+  self%isc=geom%isc; self%iec=geom%iec
+  self%jsc=geom%jsc; self%jec=geom%jec
 
   ! Apply config bounds to background error
   call self%bounds%apply(self%std_bkgerr)
@@ -122,8 +123,8 @@ subroutine soca_bkgerr_mult(self, dxa, dxm)
   call dxa%check_subset(self%std_bkgerr)
 
   ! Indices for compute domain (no halo)
-  isc=self%bkg%geom%isc; iec=self%bkg%geom%iec
-  jsc=self%bkg%geom%jsc; jec=self%bkg%geom%jec
+  isc=self%isc; iec=self%iec
+  jsc=self%jsc; jec=self%jec
 
   ! multiply
   do n=1,size(dxa%fields)

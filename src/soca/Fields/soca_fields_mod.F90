@@ -22,6 +22,7 @@ use fms_io_mod, only: fms_io_init, fms_io_exit, &
                       free_restart_type, save_restart
 use mpp_domains_mod, only : mpp_update_domains
 use MOM_remapping, only : remapping_CS, initialize_remapping, remapping_core_h, end_remapping
+use soca_fields_metadata_mod
 use soca_geom_mod, only : soca_geom
 use soca_fieldsutils_mod, only: soca_genfilename, fldinfo
 use soca_utils, only: soca_mld
@@ -47,11 +48,8 @@ type :: soca_field
   real(kind=kind_real),     pointer :: mask(:,:) => null() !< field mask
   real(kind=kind_real),     pointer :: lon(:,:) => null()  !< field lon
   real(kind=kind_real),     pointer :: lat(:,:) => null()  !< field lat
-  character(len=1)                  :: c_grid_loc !< "h", "u" or "v"
-  character(len=:),     allocatable :: cf_name    !< the (optional) name needed by UFO
-  character(len=:),     allocatable :: io_name    !< the (optional) name use in the restart IO
-  character(len=:),     allocatable :: io_file    !< the (optional) restart file domain
-                                                  ! (ocn, sfc, ice)
+  type(soca_field_metadata)         :: metadata   ! parameters for the field as determined
+                                                  ! by the configuration yaml
 contains
   procedure :: copy            => soca_field_copy
   procedure :: delete          => soca_field_delete
@@ -91,6 +89,7 @@ contains
   procedure :: gpnorm   => soca_fields_gpnorm
   procedure :: mul      => soca_fields_mul
   procedure :: sub      => soca_fields_sub
+  procedure :: ones     => soca_fields_ones
   procedure :: zeros    => soca_fields_zeros
 
   ! IO
@@ -102,11 +101,15 @@ contains
   procedure :: update_halos => soca_fields_update_halos
   procedure :: colocate  => soca_fields_colocate
 
+  ! serialization
+  procedure :: serial_size => soca_fields_serial_size
+  procedure :: serialize   => soca_fields_serialize
+  procedure :: deserialize => soca_fields_deserialize
+
 end type soca_fields
 
 
 contains
-
 
 ! ------------------------------------------------------------------------------
 ! soca_field subroutines
@@ -120,14 +123,11 @@ subroutine soca_field_copy(self, rhs)
 
   call self%check_congruent(rhs)
 
-  ! copy fields
-  self%name = rhs%name
-  self%nz = rhs%nz
+  ! the only variable that should be different is %val
   self%val = rhs%val
-  self%cf_name = rhs%cf_name
-  self%io_name = rhs%io_name
-  self%io_file = rhs%io_file
-  self%mask => rhs%mask
+
+  ! NOTE: the pointers (mask, lat, lon) will be different, but should NOT
+  ! be changed to point to rhs pointers. Bad things happen
 end subroutine soca_field_copy
 
 ! ------------------------------------------------------------------------------
@@ -193,8 +193,6 @@ end subroutine
 
 ! ------------------------------------------------------------------------------
 !> for a given list of field names, initialize the properties of those fields
-! NOTE: this information should be moved into a yaml file
-! TODO, allocate space for derived variables
 subroutine soca_fields_init_vars(self, vars)
   class(soca_fields),          intent(inout) :: self
   character(len=:), allocatable, intent(in) :: vars(:)
@@ -205,36 +203,47 @@ subroutine soca_fields_init_vars(self, vars)
   do i=1,size(vars)
     self%fields(i)%name = trim(vars(i))
 
-    ! Default stencil grid loc is h-point
-    self%fields(i)%lon => self%geom%lon
-    self%fields(i)%lat => self%geom%lat
+    ! get the field metadata parameters that are read in from a config file
+    self%fields(i)%metadata = self%geom%fields_metadata%get(self%fields(i)%name)
 
-    ! determine number of levels, and if masked
-    select case(self%fields(i)%name)
-    case ('tocn','socn', 'hocn', 'layer_depth', 'chl')
-      nz = self%geom%nzo
-      self%fields(i)%mask => self%geom%mask2d
-    case ('uocn')
-      nz = self%geom%nzo
-      self%fields(i)%mask => self%geom%mask2du
+    ! Set grid location and masks
+    select case(self%fields(i)%metadata%grid)
+    case ('h')
+      self%fields(i)%lon => self%geom%lon
+      self%fields(i)%lat => self%geom%lat
+      if (self%fields(i)%metadata%masked) &
+        self%fields(i)%mask => self%geom%mask2d
+    case ('u')
       self%fields(i)%lon => self%geom%lonu
       self%fields(i)%lat => self%geom%latu
-    case ('vocn')
-      nz = self%geom%nzo
-      self%fields(i)%mask => self%geom%mask2dv
-      self%fields(i)%lon => self%geom%lonv
-      self%fields(i)%lat => self%geom%latv
-    case ('hicen','hsnon', 'cicen')
-      nz = self%geom%ncat
-      self%fields(i)%mask => self%geom%mask2d
-    case ('ssh', 'mld')
-      nz = 1
-      self%fields(i)%mask => self%geom%mask2d
-    case ('sw', 'lhf', 'shf', 'lw', 'us')
-      nz = 1
+      if (self%fields(i)%metadata%masked) &
+        self%fields(i)%mask => self%geom%mask2du
+    case ('v')
+        self%fields(i)%lon => self%geom%lonv
+        self%fields(i)%lat => self%geom%latv
+        if (self%fields(i)%metadata%masked) &
+          self%fields(i)%mask => self%geom%mask2dv
     case default
-      call abor1_ftn('soca_fields::create(): unknown field '// self%fields(i)%name)
+      call abor1_ftn('soca_fields::create(): Illegal grid '// &
+                     self%fields(i)%metadata%grid // &
+                     ' given for ' // self%fields(i)%name)
     end select
+
+    ! determine number of levels
+    if (self%fields(i)%name == self%fields(i)%metadata%getval_name_surface) then
+      ! if this field is a surface getval, override the number of levels with 1
+      nz = 1
+    else
+      select case(self%fields(i)%metadata%levels)
+      case ('full_ocn')
+        nz = self%geom%nzo
+      case ('1') ! TODO, generalize to work with any number?
+        nz = 1
+      case default
+        call abor1_ftn('soca_fields::create(): Illegal levels '//self%fields(i)%metadata%levels// &
+                       ' given for ' // self%fields(i)%name)
+      end select
+    endif
 
     ! allocate space
     self%fields(i)%nz = nz
@@ -242,71 +251,6 @@ subroutine soca_fields_init_vars(self, vars)
       self%geom%isd:self%geom%ied, &
       self%geom%jsd:self%geom%jed, &
       nz ))
-
-    ! set other variables associated with each field
-    self%fields(i)%cf_name = ""
-    self%fields(i)%io_name = ""
-    self%fields(i)%c_grid_loc = "h"
-    select case(self%fields(i)%name)
-    case ('tocn')
-      self%fields(i)%cf_name = "sea_water_potential_temperature"
-      self%fields(i)%io_file = "ocn"
-      self%fields(i)%io_name = "Temp"
-    case ('socn')
-      self%fields(i)%cf_name = "sea_water_practical_salinity"
-      self%fields(i)%io_file = "ocn"
-      self%fields(i)%io_name = "Salt"
-    case ('ssh')
-      self%fields(i)%cf_name = "sea_surface_height_above_geoid"
-      self%fields(i)%io_file = "ocn"
-      self%fields(i)%io_name = "ave_ssh"
-    case ('hocn')
-      self%fields(i)%cf_name = "sea_water_cell_thickness"
-      self%fields(i)%io_file = "ocn"
-      self%fields(i)%io_name = "h"
-    case ('uocn')
-      self%fields(i)%cf_name = "sea_water_zonal_current"
-      self%fields(i)%io_file = "ocn"
-      self%fields(i)%io_name = "u"
-      self%fields(i)%c_grid_loc = "u"
-    case ('vocn')
-      self%fields(i)%cf_name = "sea_water_meridional_current"
-      self%fields(i)%io_file = "ocn"
-      self%fields(i)%io_name = "v"
-      self%fields(i)%c_grid_loc = "v"
-    case ('hicen')
-      self%fields(i)%cf_name = "sea_ice_category_thickness"
-      self%fields(i)%io_file = "ice"
-    case ('cicen')
-      self%fields(i)%cf_name = "sea_ice_category_area_fraction"
-      self%fields(i)%io_file = "ice"
-    case ('hsnon')
-      self%fields(i)%io_file = "ice"
-    case ('sw')
-      self%fields(i)%cf_name = "net_downwelling_shortwave_radiation"
-      self%fields(i)%io_file = "sfc"
-      self%fields(i)%io_name = "sw_rad"
-    case ('lw')
-      self%fields(i)%cf_name = "net_downwelling_longwave_radiation"
-      self%fields(i)%io_file = "sfc"
-      self%fields(i)%io_name = "lw_rad"
-    case ('lhf')
-      self%fields(i)%cf_name = "upward_latent_heat_flux_in_air"
-      self%fields(i)%io_file = "sfc"
-      self%fields(i)%io_name = "latent_heat"
-    case ('shf')
-      self%fields(i)%cf_name = "upward_sensible_heat_flux_in_air"
-      self%fields(i)%io_file = "sfc"
-      self%fields(i)%io_name = "sens_heat"
-    case ('us')
-      self%fields(i)%cf_name = "friction_velocity_over_water"
-      self%fields(i)%io_file = "sfc"
-      self%fields(i)%io_name = "fric_vel"
-    case ('chl')
-      self%fields(i)%cf_name = "mass_concentration_of_chlorophyll_in_sea_water"
-      self%fields(i)%io_file = "ocn"
-      self%fields(i)%io_name = "chl"
-    end select
 
   end do
 end subroutine
@@ -442,6 +386,18 @@ subroutine soca_fields_update_halos(self)
 end subroutine soca_fields_update_halos
 
 ! ------------------------------------------------------------------------------
+!> set all fields to one
+subroutine soca_fields_ones(self)
+  class(soca_fields), intent(inout) :: self
+  integer :: i
+
+  do i = 1, size(self%fields)
+    self%fields(i)%val = 1.0_kind_real
+  end do
+
+end subroutine soca_fields_ones
+
+! ------------------------------------------------------------------------------
 !> reset all fields to zero
 subroutine soca_fields_zeros(self)
   class(soca_fields), intent(inout) :: self
@@ -508,18 +464,20 @@ subroutine soca_fields_axpy(self,zz,rhs)
   real(kind=kind_real),  intent(in) :: zz
   class(soca_fields),    intent(in) :: rhs
 
-  type(soca_field), pointer :: fld
+  type(soca_field), pointer :: f_rhs, f_lhs
   integer :: i
 
   ! make sure fields are correct shape
-  ! TODO, should they be congruent??
-  call rhs%check_subset(self)
+  call self%check_subset(rhs)
 
-  do i=1,size(rhs%fields)
-    call self%get(rhs%fields(i)%name, fld)
-    fld%val = fld%val + zz* rhs%fields(i)%val
+  do i=1,size(self%fields)
+    f_lhs => self%fields(i)
+    if (.not. rhs%has(f_lhs%name)) cycle
+    call rhs%get(f_lhs%name, f_rhs)
+    f_lhs%val = f_lhs%val + zz *f_rhs%val
   end do
 end subroutine soca_fields_axpy
+
 
 ! ------------------------------------------------------------------------------
 !> calculate the global dot product of two sets of fields
@@ -541,22 +499,15 @@ subroutine soca_fields_dotprod(fld1,fld2,zprod)
     field1 => fld1%fields(n)
     field2 => fld2%fields(n)
 
-    ! determine which fields to use
-    ! TODO: use all fields (this will change answers in the ctests)
-    select case(field1%name)
-    case ("tocn","socn","ssh","uocn","vocn",&
-          "hicen", "sw", "lhf", "shf", "lw", "us", "cicen")
-      continue
-    case default
-      cycle
-    end select
-
     ! add the given field to the dot product (only using the compute domain)
     do ii = fld1%geom%isc, fld1%geom%iec
       do jj = fld1%geom%jsc, fld1%geom%jec
-        ! TODO masking is wrong, but this will change answers, should be:
-        ! if (field1%masked .and. .not. fld1%geom%mask2d(ii,jj) == 1 ) cycle
-        if (.not. fld1%geom%mask2d(ii,jj) == 1 ) cycle
+        ! masking
+        if (associated(field1%mask)) then
+          if (field1%mask(ii,jj) < 1) cycle
+        endif
+
+        ! add to dot product
         do kk=1,field1%nz
           local_zprod = local_zprod + field1%val(ii,jj,kk) * field2%val(ii,jj,kk)
         end do
@@ -577,9 +528,8 @@ subroutine soca_fields_read(fld, f_conf, vdate)
   type(datetime),            intent(inout) :: vdate   !< DateTime
 
   integer, parameter :: max_string_length=800
-  character(len=max_string_length) :: ocn_filename, sfc_filename, filename
+  character(len=max_string_length) :: ocn_filename, sfc_filename, ice_filename, filename
   character(len=:), allocatable :: basename, incr_filename
-  real(kind=kind_real), allocatable :: cicen_val(:,:,:)
   integer :: iread = 0
   integer :: ii
   logical :: vert_remap=.false.
@@ -593,12 +543,10 @@ subroutine soca_fields_read(fld, f_conf, vdate)
   integer :: isc, iec, jsc, jec
   integer :: i, j, nz, n
   type(remapping_CS)  :: remapCS
-  character(len=:), allocatable :: str, seaice_model
+  character(len=:), allocatable :: str
   real(kind=kind_real), allocatable :: h_common_ij(:), hocn_ij(:), varocn_ij(:), varocn2_ij(:)
-  logical :: read_sfc
-  type(soca_field), pointer :: field, field2, hocn, cicen, mld, layer_depth
-  real(kind=kind_real) :: soca_rho_ice  = 905.0 !< [kg/m3]
-  real(kind=kind_real) :: soca_rho_snow = 330.0 !< [kg/m3]
+  logical :: read_sfc, read_ice
+  type(soca_field), pointer :: field, field2, hocn, mld, layer_depth
 
   if ( f_conf%has("read_from_file") ) &
       call f_conf%get_or_die("read_from_file", iread)
@@ -638,84 +586,6 @@ subroutine soca_fields_read(fld, f_conf, vdate)
 
   ! iread = 1 (state) or 3 (increment): Read restart file
   if ((iread==1).or.(iread==3)) then
-    ! Read sea-ice
-    seaice_model = ""
-    if(f_conf%get("ice_filename", str)) then
-      call f_conf%get_or_die("basename", basename)
-      filename = trim(basename)//trim(str)
-      if(.not. f_conf%get("seaice_model", seaice_model)) seaice_model = "sis2"
-    end if
-
-    select case(seaice_model)
-    case ('sis2')
-      call fms_io_init()
-      do i=1,size(fld%fields)
-        select case(fld%fields(i)%name)
-        case ('cicen')
-          allocate(cicen_val(isd:ied, jsd:jed, fld%fields(i)%nz + 1))
-          cicen_val = 0.0_kind_real
-          idr = register_restart_field(ice_restart, filename, 'part_size', &
-                  cicen_val, &
-                  domain=fld%geom%Domain%mpp_domain)
-        case ('hicen')
-          idr = register_restart_field(ice_restart, filename, 'h_ice', &
-                  fld%fields(i)%val(:,:,:), &
-                  domain=fld%geom%Domain%mpp_domain)
-        case ('hsnon')
-          idr = register_restart_field(ice_restart, filename, 'h_snow', &
-                  fld%fields(i)%val(:,:,:), &
-                  domain=fld%geom%Domain%mpp_domain)
-        end select
-      end do
-
-      call restore_state(ice_restart, directory='')
-      call free_restart_type(ice_restart)
-      call fms_io_exit()
-      do i=1,size(fld%fields)
-        select case(fld%fields(i)%name)
-        case ('cicen')
-          fld%fields(i)%val = cicen_val(:,:,2:)
-          deallocate(cicen_val)
-        case ('hicen')
-          fld%fields(i)%val = fld%fields(i)%val / soca_rho_ice
-        case ('hsnon')
-          fld%fields(i)%val = fld%fields(i)%val / soca_rho_snow
-        end select
-      end do
-
-    case ('cice')
-      call fms_io_init()
-      do i=1,size(fld%fields)
-        select case(fld%fields(i)%name)
-        case ('cicen')
-          idr = register_restart_field(ice_restart, filename, 'aicen', &
-                  fld%fields(i)%val(:,:,:), &
-                  domain=fld%geom%Domain%mpp_domain)
-        case ('hicen')
-          idr = register_restart_field(ice_restart, filename, 'vicen', &
-                  fld%fields(i)%val(:,:,:), &
-                  domain=fld%geom%Domain%mpp_domain)
-        case ('hsnon')
-          idr = register_restart_field(ice_restart, filename, 'vsnon', &
-                  fld%fields(i)%val(:,:,:), &
-                  domain=fld%geom%Domain%mpp_domain)
-        end select
-      end do
-      call restore_state(ice_restart, directory='')
-      call free_restart_type(ice_restart)
-      call fms_io_exit()
-      ! Convert to hicen and hsnon
-      call fld%get("cicen", cicen)
-      do i=1,size(fld%fields)
-        select case(fld%fields(i)%name)
-        case ('hicen','hsnon')
-          where(cicen%val(:,:,:)>0.0_kind_real)
-            fld%fields(i)%val  = fld%fields(i)%val / cicen%val(:,:,:)
-          end where
-        end select
-      end do
-
-    end select
 
     ! filename for ocean
     call f_conf%get_or_die("basename", str)
@@ -733,13 +603,23 @@ subroutine soca_fields_read(fld, f_conf, vdate)
       sfc_filename = trim(basename)//trim(str)
     end if
 
+    ! filename for ice
+    read_ice = .false.
+    ice_filename=""
+    if ( f_conf%has("ice_filename") ) then
+      call f_conf%get_or_die("basename", str)
+      basename = str
+      call f_conf%get_or_die("ice_filename", str)
+      ice_filename = trim(basename)//trim(str)
+    end if
+
     call fms_io_init()
 
     ! built-in variables
     do i=1,size(fld%fields)
-      if(fld%fields(i)%io_name /= "") then
+      if(fld%fields(i)%metadata%io_name /= "") then
         ! which file are we reading from?
-        select case(fld%fields(i)%io_file)
+        select case(fld%fields(i)%metadata%io_file)
         case ('ocn')
           filename = ocn_filename
           restart => ocean_restart
@@ -748,16 +628,20 @@ subroutine soca_fields_read(fld, f_conf, vdate)
           filename = sfc_filename
           restart => sfc_restart
           read_sfc = .true.
+        case ('ice')
+          filename = ice_filename
+          restart => ice_restart
+          read_ice = .true.
         case default
-          call abor1_ftn('read_file(): illegal io_file: '//fld%fields(i)%io_file)
+          call abor1_ftn('read_file(): illegal io_file: '//fld%fields(i)%metadata%io_file)
         end select
 
       ! setup to read
         if (fld%fields(i)%nz == 1) then
-          idr = register_restart_field(restart, filename, fld%fields(i)%io_name, &
+          idr = register_restart_field(restart, filename, fld%fields(i)%metadata%io_name, &
               fld%fields(i)%val(:,:,1), domain=fld%geom%Domain%mpp_domain)
         else
-          idr = register_restart_field(restart, filename, fld%fields(i)%io_name, &
+          idr = register_restart_field(restart, filename, fld%fields(i)%metadata%io_name, &
               fld%fields(i)%val(:,:,:), domain=fld%geom%Domain%mpp_domain)
         end if
       end if
@@ -769,6 +653,11 @@ subroutine soca_fields_read(fld, f_conf, vdate)
       call restore_state(sfc_restart, directory='')
       call free_restart_type(sfc_restart)
     end if
+    if (read_ice) then
+      call restore_state(ice_restart, directory='')
+      call free_restart_type(ice_restart)
+    end if
+
     call fms_io_exit()
 
     ! Indices for compute domain
@@ -776,23 +665,27 @@ subroutine soca_fields_read(fld, f_conf, vdate)
     jsc = fld%geom%jsc ; jec = fld%geom%jec
 
     ! Initialize mid-layer depth from layer thickness
-    call fld%get("layer_depth", layer_depth)
-    call fld%geom%thickness2depth(hocn%val, layer_depth%val)
+    if (fld%has("layer_depth")) then
+      call fld%get("layer_depth", layer_depth)
+      call fld%geom%thickness2depth(hocn%val, layer_depth%val)
+    end if
 
     ! Compute mixed layer depth TODO: Move somewhere else ...
-    call fld%get("tocn", field)
-    call fld%get("socn", field2)
-    call fld%get("mld", mld)
-    do i = isc, iec
-      do j = jsc, jec
-          mld%val(i,j,1) = soca_mld(&
-              &field2%val(i,j,:),&
-              &field%val(i,j,:),&
-              &layer_depth%val(i,j,:),&
-              &fld%geom%lon(i,j),&
-              &fld%geom%lat(i,j))
+    if (fld%has("mld") .and. fld%has("layer_depth")) then
+      call fld%get("tocn", field)
+      call fld%get("socn", field2)
+      call fld%get("mld", mld)
+      do i = isc, iec
+        do j = jsc, jec
+            mld%val(i,j,1) = soca_mld(&
+                &field2%val(i,j,:),&
+                &field%val(i,j,:),&
+                &layer_depth%val(i,j,:),&
+                &fld%geom%lon(i,j),&
+                &fld%geom%lat(i,j))
+        end do
       end do
-    end do
+    end if
 
     ! Remap layers if needed
     if (vert_remap) then
@@ -841,24 +734,7 @@ subroutine soca_fields_read(fld, f_conf, vdate)
     return
   end if
 
-  ! Read diagnostic file
-  if (iread==2) then
-    call f_conf%get_or_die("filename", str)
-    incr_filename = str
-    call fms_io_init()
-    do ii = 1, size(fld%fields)
-      field => fld%fields(ii)
-      if (field%io_name == "" ) cycle
-      if ( field%nz == 1) then
-        call read_data(incr_filename, field%name, field%val(:,:,1), domain=fld%geom%Domain%mpp_domain)
-      else
-        call read_data(incr_filename, field%name, field%val(:,:,:), domain=fld%geom%Domain%mpp_domain)
-      end if
-    end do
-    call fms_io_exit()
-  endif
 end subroutine soca_fields_read
-
 
 ! ------------------------------------------------------------------------------
 !> calculate global statistics for each field (min, max, average)
@@ -876,29 +752,21 @@ subroutine soca_fields_gpnorm(fld, nf, pstat)
   isc = fld%geom%isc ; iec = fld%geom%iec
   jsc = fld%geom%jsc ; jec = fld%geom%jec
 
-  ! get the number of ocean grid cells
-  local_ocn_count = sum(fld%geom%mask2d(isc:iec, jsc:jec))
-  call fld%geom%f_comm%allreduce(local_ocn_count, ocn_count, fckit_mpi_sum())
-  mask = fld%geom%mask2d(isc:iec,jsc:jec) > 0.0
-
   ! calculate global min, max, mean for each field
   do jj=1, size(fld%fields)
-
-    ! get local min/max/sum of each variable
-    ! TODO: use all fields (this will change answers in the ctests)
-    select case(fld%fields(jj)%name)
-    case("tocn", "socn", "ssh", "hocn", "uocn", "vocn", &
-         "sw", "lw", "lhf", "shf", "us", "hicen", "hsnon", "cicen", "chl")
-      continue
-    case default
-      cycle
-    end select
-
-    ! TODO only mask fields that should be masked (will change answers)
     call fld%get(fld%fields(jj)%name, field)
-    call fldinfo(field%val(isc:iec,jsc:jec,:), mask, tmp)
+
+    ! get the mask and the total number of grid cells
+    if (.not. associated(field%mask)) then
+       mask = .true.
+     else
+       mask = field%mask(isc:iec, jsc:jec) > 0.0
+     end if
+    local_ocn_count = count(mask)
+    call fld%geom%f_comm%allreduce(local_ocn_count, ocn_count, fckit_mpi_sum())
 
     ! calculate global min/max/mean
+    call fldinfo(field%val(isc:iec,jsc:jec,:), mask, tmp)
     call fld%geom%f_comm%allreduce(tmp(1), pstat(1,jj), fckit_mpi_min())
     call fld%geom%f_comm%allreduce(tmp(2), pstat(2,jj), fckit_mpi_max())
     call fld%geom%f_comm%allreduce(tmp(3), pstat(3,jj), fckit_mpi_sum())
@@ -989,13 +857,11 @@ subroutine soca_fields_write_rst(fld, f_conf, vdate)
   type(datetime),            intent(inout) :: vdate    !< DateTime
 
   integer, parameter :: max_string_length=800
-  character(len=:), allocatable :: seaice_model
   character(len=max_string_length) :: ocn_filename, sfc_filename, ice_filename, filename
   type(restart_file_type), target :: ocean_restart, sfc_restart, ice_restart
   type(restart_file_type), pointer :: restart
   integer :: idr, i
-  type(soca_field), pointer :: field, cicen
-  real(kind=kind_real), allocatable :: cicen_val(:,:,:), vicen(:,:,:), vsnon(:,:,:)
+  type(soca_field), pointer :: field
   logical :: write_sfc, write_ice
 
   write_ice = .false.
@@ -1005,44 +871,14 @@ subroutine soca_fields_write_rst(fld, f_conf, vdate)
   ! filenames
   ocn_filename = soca_genfilename(f_conf,max_string_length,vdate,"ocn")
   sfc_filename = soca_genfilename(f_conf,max_string_length,vdate,"sfc")
-
-  ! Check what ice model we are writing a file to ('sis2' or 'cice')
-  if ( .not. f_conf%get("seaice_model", seaice_model)) seaice_model = 'sis2'
-  if ( seaice_model == 'sis2') then
-    ice_filename = soca_genfilename(f_conf, max_string_length,vdate,"ice")
-  else
-    ice_filename = soca_genfilename(f_conf, max_string_length,vdate,"cice")
-  end if
+  ice_filename = soca_genfilename(f_conf, max_string_length,vdate,"ice")
 
   ! built in variables
   do i=1,size(fld%fields)
     field => fld%fields(i)
-    ! TODO move the ice calculations elsewhere
-    ! these variable are handled specially (...annoying ice)
-    if (field%name == "cicen" .and. seaice_model /= 'cice') then
-      allocate(cicen_val(fld%geom%isd:fld%geom%ied, fld%geom%jsd:fld%geom%jed, field%nz+1))
-      cicen_val(:,:,2:) = field%val
-      cicen_val(:,:,1) = 1.0 - sum(cicen_val(:,:,2:), dim=3)
-      idr = register_restart_field( ice_restart, ice_filename, "part_size", &
-        cicen_val, domain=fld%geom%Domain%mpp_domain)
-
-    else if (seaice_model == "cice" .and. field%name == "hicen") then
-      allocate(vicen, mold=field%val)
-      call fld%get("cicen", cicen)
-      vicen = cicen%val * field%val
-      idr = register_restart_field( ice_restart, ice_filename, "vicen", &
-        vicen, domain=fld%geom%Domain%mpp_domain)
-
-    else if (seaice_model == "cice" .and. field%name == "hsnon") then
-      allocate(vsnon, mold=field%val)
-      call fld%get("cicen", cicen)
-      vsnon = cicen%val * field%val
-      idr = register_restart_field( ice_restart, ice_filename, "vsnon", &
-        vsnon, domain=fld%geom%Domain%mpp_domain)
-
-    else if (len_trim(field%io_file) /= 0) then
+    if (len_trim(field%metadata%io_file) /= 0) then
       ! which file are we writing to
-      select case(field%io_file)
+      select case(field%metadata%io_file)
       case ('ocn')
         filename = ocn_filename
         restart => ocean_restart
@@ -1054,31 +890,16 @@ subroutine soca_fields_write_rst(fld, f_conf, vdate)
         filename = ice_filename
         restart => ice_restart
         write_ice = .true.
-        ! TODO move io_name for ice variables into config file, since they
-        ! depend on which model is used
-        if ( seaice_model == 'sis2') then
-          select case(field%name)
-          case ('hicen')
-            field%io_name = 'h_ice'
-          case ('hsnon')
-            field%io_name = 'h_snow'
-          end select
-        else if ( seaice_model == 'cice') then
-          select case(field%name)
-          case ('cicen')
-            field%io_name = 'aicen'
-          end select
-        end if
       case default
-        call abor1_ftn('soca_write_restart(): illegal io_file: '//field%io_file)
+        call abor1_ftn('soca_write_restart(): illegal io_file: '//field%metadata%io_file)
       end select
 
       ! write
       if (field%nz == 1) then
-        idr = register_restart_field( restart, filename, field%io_name, &
+        idr = register_restart_field( restart, filename, field%metadata%io_name, &
           field%val(:,:,1), domain=fld%geom%Domain%mpp_domain)
       else
-        idr = register_restart_field( restart, filename, field%io_name, &
+        idr = register_restart_field( restart, filename, field%metadata%io_name, &
         field%val(:,:,:), domain=fld%geom%Domain%mpp_domain)
       end if
     end if
@@ -1132,7 +953,7 @@ subroutine soca_fields_colocate(self, cgridlocout)
   do i=1,size(self%fields)
 
     ! Check if already colocated
-    if (self%fields(i)%c_grid_loc == cgridlocout) cycle
+    if (self%fields(i)%metadata%grid == cgridlocout) cycle
 
     ! Initialize fms spherical idw interpolation
      g => self%geom
@@ -1153,7 +974,7 @@ subroutine soca_fields_colocate(self, cgridlocout)
     end do
 
     ! Update c-grid location
-    self%fields(i)%c_grid_loc = cgridlocout
+    self%fields(i)%metadata%grid = cgridlocout
     select case(cgridlocout)
     ! TODO: Test colocation to u and v grid
     !case ('u')
@@ -1171,5 +992,64 @@ subroutine soca_fields_colocate(self, cgridlocout)
  call horiz_interp_spherical_del(interp2d)
 
 end subroutine soca_fields_colocate
+
+! ------------------------------------------------------------------------------
+
+subroutine soca_fields_serial_size(self, geom, vec_size)
+  class(soca_fields),    intent(in)  :: self
+  type(soca_geom),       intent(in)  :: geom
+  integer,               intent(out) :: vec_size
+
+  integer :: i
+
+  ! Loop over fields
+  vec_size = 0
+  do i=1,size(self%fields)
+    vec_size = vec_size + size(self%fields(i)%val)
+  end do
+
+end subroutine soca_fields_serial_size
+
+! ------------------------------------------------------------------------------
+
+subroutine soca_fields_serialize(self, geom, vec_size, vec)
+  class(soca_fields),    intent(in)  :: self
+  type(soca_geom),       intent(in)  :: geom
+  integer,               intent(in)  :: vec_size
+  real(kind=kind_real),  intent(out) :: vec(vec_size)
+
+  integer :: index, i, nn
+
+  ! Loop over fields, levels and horizontal points
+  index = 1
+  do i=1,size(self%fields)
+    nn = size(self%fields(i)%val)
+    vec(index:index+nn-1) = reshape(self%fields(i)%val, (/ nn /) )
+    index = index + nn
+  end do
+
+end subroutine soca_fields_serialize
+
+! ------------------------------------------------------------------------------
+
+subroutine soca_fields_deserialize(self, geom, vec_size, vec, index)
+  class(soca_fields), intent(inout) :: self
+  type(soca_geom),       intent(in)    :: geom
+  integer,               intent(in)    :: vec_size
+  real(kind=kind_real),  intent(in)    :: vec(vec_size)
+  integer,               intent(inout) :: index
+
+  integer :: i, nn
+
+  ! Loop over fields, levels and horizontal points
+  do i=1,size(self%fields)
+    nn = size(self%fields(i)%val)
+    self%fields(i)%val = reshape(vec(index+1:index+1+nn), shape(self%fields(i)%val))
+    index = index + nn
+  end do
+
+end subroutine soca_fields_deserialize
+
+! ------------------------------------------------------------------------------
 
 end module soca_fields_mod

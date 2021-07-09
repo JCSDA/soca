@@ -4,11 +4,10 @@ eckit/
 fckit/
 fms/
 gsw/
-ioda-converters/
 ioda/
+jedicmake/
 mom6/
 oops/
 saber/
 soca
-soca-config/
 ufo/

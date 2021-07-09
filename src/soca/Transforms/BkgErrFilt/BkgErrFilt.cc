@@ -10,26 +10,40 @@
 
 #include "soca/Geometry/Geometry.h"
 #include "soca/Increment/Increment.h"
-#include "soca/State/State.h"
 #include "soca/Transforms/BkgErrFilt/BkgErrFilt.h"
 #include "soca/Transforms/BkgErrFilt/BkgErrFiltFortran.h"
+#include "soca/State/State.h"
+#include "soca/Traits.h"
 
 #include "eckit/config/Configuration.h"
 
+#include "oops/interface/LinearVariableChange.h"
 #include "oops/util/Logger.h"
 
 using oops::Log;
 
 namespace soca {
+
+  // -----------------------------------------------------------------------------
+  static oops::LinearVariableChangeMaker<Traits,
+            oops::LinearVariableChange<Traits, BkgErrFilt> >
+            makerLinearVariableChangeBkgErrFilt_("BkgErrFILT");
+
   // -----------------------------------------------------------------------------
   BkgErrFilt::BkgErrFilt(const State & bkg,
                  const State & traj,
                  const Geometry & geom,
-                 const eckit::Configuration & conf): traj_(traj) {
+                 const eckit::Configuration & conf) {
     const eckit::Configuration * configc = &conf;
+
+    // Interpolate trajectory to the geom resolution
+    State traj_at_geomres(geom, traj);
+
+    // Setup background error filter
     soca_bkgerrfilt_setup_f90(keyFtnConfig_,
                               &configc,
-                              traj_.toFortran());
+                              traj_at_geomres.toFortran(),
+                              geom.toFortran());
   }
   // -----------------------------------------------------------------------------
   BkgErrFilt::~BkgErrFilt() {

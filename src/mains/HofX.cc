@@ -11,14 +11,21 @@
 
 #include "soca/Traits.h"
 
-#include "oops/runs/HofX.h"
+#include "oops/generic/instantiateModelFactory.h"
+#include "oops/runs/HofX4D.h"
 #include "oops/runs/Run.h"
 #include "ufo/instantiateObsFilterFactory.h"
 #include "ufo/ObsTraits.h"
 
 int main(int argc,  char ** argv) {
   oops::Run run(argc, argv);
+<<<<<<< HEAD
   ufo::instantiateObsFilterFactory<ufo::ObsTraits>();
   oops::HofX<soca::Traits, ufo::ObsTraits> hofx;
+=======
+  oops::instantiateModelFactory<soca::Traits>();
+  ufo::instantiateObsFilterFactory<ufo::ObsTraits>();
+  oops::HofX4D<soca::Traits, ufo::ObsTraits> hofx;
+>>>>>>> develop
   return run.execute(hofx);
 }

@@ -8,29 +8,41 @@
 #include <ostream>
 #include <string>
 
+#include "soca/Geometry/Geometry.h"
 #include "soca/Increment/Increment.h"
-#include "soca/State/State.h"
 #include "soca/Transforms/VertConv/VertConv.h"
 #include "soca/Transforms/VertConv/VertConvFortran.h"
+#include "soca/State/State.h"
+#include "soca/Traits.h"
 
 #include "eckit/config/Configuration.h"
 
+#include "oops/interface/LinearVariableChange.h"
 #include "oops/util/Logger.h"
 
 using oops::Log;
 
 namespace soca {
+
+  // -----------------------------------------------------------------------------
+  static oops::LinearVariableChangeMaker<Traits,
+            oops::LinearVariableChange<Traits, VertConv> >
+            makerLinearVariableCHangeVertConv_("VertConvSOCA");
+
   // -----------------------------------------------------------------------------
   VertConv::VertConv(const State & bkg,
                      const State & traj,
                      const Geometry & geom,
-                     const eckit::Configuration & conf): traj_(traj) {
-    const eckit::Configuration * configc = &conf;
+                     const eckit::Configuration & conf) :
+          bkg_lr_(geom, bkg), geom_(geom) {
     oops::Log::trace() << "soca::VertConv::setup " << std::endl;
+    const eckit::Configuration * configc = &conf;
+
+    // Compute convolution weights
     soca_vertconv_setup_f90(keyFtnConfig_,
                             &configc,
-                            traj_.toFortran(),
-                            bkg.toFortran());
+                            bkg_lr_.toFortran(),
+                            geom.toFortran());
   }
   // -----------------------------------------------------------------------------
   VertConv::~VertConv() {
@@ -62,7 +74,7 @@ namespace soca {
   }
   // -----------------------------------------------------------------------------
   void VertConv::print(std::ostream & os) const {
-    os << "SOCA change variable";
+    os << "SOCA change variable: VertConv";
   }
   // -----------------------------------------------------------------------------
 }  // namespace soca

@@ -11,6 +11,8 @@
 #include <ostream>
 #include <string>
 
+#include "soca/State/State.h"
+
 #include "oops/util/DateTime.h"
 #include "oops/util/Printable.h"
 
@@ -19,7 +21,6 @@ namespace eckit {
   class Configuration;
 }
 namespace soca {
-  class State;
   class Geometry;
   class Increment;
 }
@@ -46,7 +47,8 @@ class VertConv: public util::Printable {
  private:
   void print(std::ostream &) const override;
   int keyFtnConfig_;
-  const State & traj_;
+  const State bkg_lr_;
+  const Geometry geom_;
 };
 // -----------------------------------------------------------------------------
 

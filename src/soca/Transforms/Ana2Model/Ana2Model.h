@@ -14,8 +14,10 @@
 
 #include "eckit/config/Configuration.h"
 #include "soca/Geometry/Geometry.h"
-#include "oops/util/Printable.h"
+#include "soca/Traits.h"
+#include "oops/base/VariableChangeBase.h"
 #include "oops/base/Variables.h"
+
 
 // Forward declarations
 namespace eckit {
@@ -29,16 +31,15 @@ namespace soca {
 // -----------------------------------------------------------------------------
 /// SOCA nonlinear change of variable
 
-class Ana2Model: public util::Printable {
+class Ana2Model: public oops::VariableChangeBase<soca::Traits> {
  public:
   static const std::string classname() {return "soca::Ana2Model";}
 
-  explicit Ana2Model(const Geometry &,
-                     const eckit::Configuration &);
+  Ana2Model(const Geometry &, const eckit::Configuration &);
   ~Ana2Model();
 
-  void changeVar(const State &, State &) const;
-  void changeVarInverse(const State &, State &) const;
+  void changeVar(const State &, State &) const override;
+  void changeVarInverse(const State &, State &) const override;
 
   std::vector<std::string> initRotate(const eckit::Configuration & conf,
                                       const std::string & uv) const
@@ -46,10 +47,17 @@ class Ana2Model: public util::Printable {
     return conf.getStringVector("rotate."+uv);
   }
 
+  std::vector<std::string> initTrans(const eckit::Configuration & conf,
+                                      const std::string & trvar) const
+  {
+    return conf.getStringVector("log."+trvar);
+  }
+
  private:
   void print(std::ostream &) const override;
   const oops::Variables uvars_;
   const oops::Variables vvars_;
+  const oops::Variables logvars_;
 };
 // -----------------------------------------------------------------------------
 }  // namespace soca

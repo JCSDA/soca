@@ -9,6 +9,8 @@ use fckit_configuration_module, only: fckit_configuration
 use kinds, only: kind_real
 use type_mpl, only: mpl_type
 use tools_func, only: fit_func
+use type_probe, only: probe
+use soca_geom_mod
 use soca_fields_mod
 use soca_increment_mod
 use soca_state_mod
@@ -26,8 +28,8 @@ type :: soca_vertconv
    real(kind=kind_real)      :: lz_mld_max         !> if calculating Lz from MLD, max value to use
    real(kind=kind_real)      :: scale_layer_thick  !> Set the minimum decorrelation scale
                                                    !> as a multiple of the layer thickness
-   type(soca_state),pointer :: traj               !> Trajectory
-   type(soca_state),pointer :: bkg                !> Background
+   type(soca_state), pointer :: bkg                !> Background
+   type(soca_geom),  pointer :: geom               !> Geometry
    integer                   :: isc, iec, jsc, jec !> Compute domain
 end type soca_vertconv
 
@@ -38,11 +40,11 @@ contains
 ! ------------------------------------------------------------------------------
 ! Setup for the vertical convolution
 ! TODO: Investigate computing and storing weights in vertconc data structure
-subroutine soca_conv_setup (self, bkg, traj, f_conf)
+subroutine soca_conv_setup (self, bkg, geom, f_conf)
   type(fckit_configuration), intent(in) :: f_conf
   type(soca_vertconv),    intent(inout) :: self
-  type(soca_state), target, intent(in) :: bkg
-  type(soca_state), target, intent(in) :: traj
+  type(soca_state),  target, intent(in) :: bkg
+  type(soca_geom),   target, intent(in) :: geom
 
   ! Get configuration for vertical convolution
   call f_conf%get_or_die("Lz_min", self%lz_min )
@@ -51,13 +53,13 @@ subroutine soca_conv_setup (self, bkg, traj, f_conf)
       call f_conf%get_or_die("Lz_mld_max", self%lz_mld_max )
   call f_conf%get_or_die("scale_layer_thick", self%scale_layer_thick )
 
-  ! Store trajectory and background
-  self%traj => traj
+  ! Associate background and geometry
   self%bkg => bkg
+  self%geom => geom
 
   ! Indices for compute domain (no halo)
-  self%isc=bkg%geom%isc; self%iec=bkg%geom%iec
-  self%jsc=bkg%geom%jsc; self%jec=bkg%geom%jec
+  self%isc=geom%isc; self%iec=geom%iec
+  self%jsc=geom%jsc; self%jec=geom%jec
 
 end subroutine soca_conv_setup
 
@@ -96,7 +98,7 @@ end subroutine soca_calc_lz
 ! ------------------------------------------------------------------------------
 !> Apply forward convolution
 subroutine soca_conv (self, convdx, dx)
-  type(soca_vertconv), intent(in) :: self
+  type(soca_vertconv), intent(inout) :: self
   type(soca_increment),   intent(in) :: dx
   type(soca_increment),intent(inout) :: convdx
 
@@ -107,6 +109,8 @@ subroutine soca_conv (self, convdx, dx)
 
   type(soca_field), pointer :: field_dx, field_convdx, layer_depth
 
+  call probe%get_instance('soca')
+
   call self%bkg%get("layer_depth", layer_depth)
   nl = layer_depth%nz
 
@@ -115,13 +119,13 @@ subroutine soca_conv (self, convdx, dx)
   do n=1,size(dx%fields)
     ! TODO remove these hardcoded values, use the yaml file
     select case(dx%fields(n)%name)
-    case ("tocn","socn")
+    case ("tocn", "socn")
       call dx%get(dx%fields(n)%name, field_dx)
       call convdx%get(dx%fields(n)%name, field_convdx)
       do id = self%isc, self%iec
         do jd = self%jsc, self%jec
           ! skip land
-          if (self%bkg%geom%mask2d(id,jd) /= 1) cycle
+          if (self%geom%mask2d(id,jd) /= 1) cycle
 
           ! get correlation lengths
           call soca_calc_lz(self, id, jd, lz)
@@ -147,7 +151,7 @@ end subroutine soca_conv
 ! ------------------------------------------------------------------------------
 !> Apply backward convolution
 subroutine soca_conv_ad (self, convdx, dx)
-  type(soca_vertconv), intent(in) :: self
+  type(soca_vertconv), intent(inout) :: self
   type(soca_increment),intent(inout) :: dx     ! OUT
   type(soca_increment),   intent(in) :: convdx ! IN
 
@@ -157,6 +161,8 @@ subroutine soca_conv_ad (self, convdx, dx)
   type(mpl_type) :: mpl
   type(soca_field), pointer :: field_dx, field_convdx, layer_depth
 
+  call probe%get_instance('soca')
+
   call self%bkg%get("layer_depth", layer_depth)
   nl = layer_depth%nz
   allocate(z(nl), lz(nl))
@@ -164,13 +170,13 @@ subroutine soca_conv_ad (self, convdx, dx)
   do n=1,size(dx%fields)
     select case(dx%fields(n)%name)
    ! TODO remove these hardcoded values, use the yaml file
-    case ("tocn","socn")
+    case ("tocn", "socn")
       call dx%get(dx%fields(n)%name, field_dx)
       call convdx%get(dx%fields(n)%name, field_convdx)
       do id = self%isc, self%iec
         do jd = self%jsc, self%jec
           ! skip land
-          if (self%bkg%geom%mask2d(id,jd) /= 1) cycle
+          if (self%geom%mask2d(id,jd) /= 1) cycle
 
           ! get correlation lengths
           call soca_calc_lz(self, id, jd, lz)

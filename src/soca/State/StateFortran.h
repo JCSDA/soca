@@ -43,11 +43,25 @@ namespace soca {
     void soca_state_rotate2north_f90(const F90flds &,
                                      const oops::Variables &,
                                      const oops::Variables &);
+    void soca_state_logtrans_f90(const F90flds &, const oops::Variables &);
+    void soca_state_expontrans_f90(const F90flds &, const oops::Variables &);
     void soca_state_gpnorm_f90(const F90flds &, const int &, double &);
-    void soca_state_sizes_f90(const F90flds &, int &, int &, int &,
+    void soca_state_sizes_f90(const F90flds &, int &,
                               int &, int &, int &);
     void soca_state_rms_f90(const F90flds &, double &);
     void soca_state_change_resol_f90(const F90flds &, const F90flds &);
+    void soca_state_serial_size_f90(const F90flds &,
+                                    const F90geom &,
+                                    size_t &);
+    void soca_state_serialize_f90(const F90flds &,
+                                  const F90geom &,
+                                  const size_t &,
+                                  double[]);
+    void soca_state_deserialize_f90(const F90flds &,
+                                    const F90geom &,
+                                    const size_t &,
+                                    const double[],
+                                    size_t &);
   }
 }  // namespace soca
 #endif  // SOCA_STATE_STATEFORTRAN_H_

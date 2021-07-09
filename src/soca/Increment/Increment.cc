@@ -6,7 +6,10 @@
  */
 
 #include <iomanip>
+#include <numeric>
 #include <vector>
+
+#include "atlas/field.h"
 
 #include "soca/Geometry/Geometry.h"
 #include "soca/GeometryIterator/GeometryIterator.h"
@@ -18,7 +21,6 @@
 
 #include "oops/base/LocalIncrement.h"
 #include "oops/base/Variables.h"
-#include "oops/generic/UnstructuredGrid.h"
 #include "oops/util/DateTime.h"
 #include "oops/util/Duration.h"
 #include "oops/util/Logger.h"
@@ -80,11 +82,10 @@ namespace soca {
   void Increment::diff(const State & x1, const State & x2) {
     ASSERT(this->validTime() == x1.validTime());
     ASSERT(this->validTime() == x2.validTime());
-    Log::debug() << "Increment:diff incr " << *this << std::endl;
-    Log::debug() << "Increment:diff x1 " << x1 << std::endl;
-    Log::debug() << "Increment:diff x2 " << x2 << std::endl;
-    soca_increment_diff_incr_f90(toFortran(), x1.toFortran(),
-                             x2.toFortran());
+    State x1_at_geomres(*geom_, x1);
+    State x2_at_geomres(*geom_, x2);
+    soca_increment_diff_incr_f90(toFortran(), x1_at_geomres.toFortran(),
+                                              x2_at_geomres.toFortran());
   }
   // -----------------------------------------------------------------------------
   Increment & Increment::operator=(const Increment & rhs) {
@@ -110,6 +111,10 @@ namespace soca {
     return *this;
   }
   // -----------------------------------------------------------------------------
+  void Increment::ones() {
+    soca_increment_ones_f90(toFortran());
+  }
+  // -----------------------------------------------------------------------------
   void Increment::zero() {
     soca_increment_zero_f90(toFortran());
   }
@@ -131,7 +136,7 @@ namespace soca {
   }
   // -----------------------------------------------------------------------------
   void Increment::accumul(const double & zz, const State & xx) {
-    soca_increment_axpy_f90(toFortran(), zz, xx.toFortran());
+    soca_increment_accumul_f90(toFortran(), zz, xx.toFortran());
   }
   // -----------------------------------------------------------------------------
   void Increment::schur_product_with(const Increment & dx) {
@@ -151,8 +156,8 @@ namespace soca {
   // -----------------------------------------------------------------------------
   oops::LocalIncrement Increment::getLocal(
                         const GeometryIterator & iter) const {
-    int nx, ny, nzo, nzi, ncat, nf;
-    soca_increment_sizes_f90(toFortran(), nx, ny, nzo, nzi, ncat, nf);
+    int nx, ny, nzo, nf;
+    soca_increment_sizes_f90(toFortran(), nx, ny, nzo, nf);
 
     std::vector<int> varlens(vars_.size());
 
@@ -161,11 +166,16 @@ namespace soca {
       if (vars_[ii] == "tocn") varlens[ii]=nzo;
       else if (vars_[ii] == "socn") varlens[ii]=nzo;
       else if (vars_[ii] == "hocn") varlens[ii]=nzo;
-      else if (vars_[ii] == "cicen") varlens[ii]=ncat;
-      else if (vars_[ii] == "hicen") varlens[ii]=ncat;
-      else if (vars_[ii] == "hsnon") varlens[ii]=ncat;
+      else if (vars_[ii] == "uocn") varlens[ii]=nzo;
+      else if (vars_[ii] == "vocn") varlens[ii]=nzo;
+      else if (vars_[ii] == "ssh")  varlens[ii]=1;
+      else if (vars_[ii] == "cicen") varlens[ii]=1;
+      else if (vars_[ii] == "hicen") varlens[ii]=1;
+      else if (vars_[ii] == "hsnon") varlens[ii]=1;
+      else if (vars_[ii] == "chl") varlens[ii]=nzo;
+      else if (vars_[ii] == "biop") varlens[ii]=nzo;
       else
-          varlens[ii] = 1;
+          varlens[ii] = 0;
     }
 
     int lenvalues = std::accumulate(varlens.begin(), varlens.end(), 0);
@@ -184,22 +194,22 @@ namespace soca {
     soca_increment_setpoint_f90(toFortran(), iter.toFortran(), vals[0],
                             vals.size());
   }
-
   // -----------------------------------------------------------------------------
-  /// Unstructured grid
+  /// ATLAS
   // -----------------------------------------------------------------------------
-  void Increment::ug_coord(oops::UnstructuredGrid & ug) const {
-    soca_increment_ug_coord_f90(toFortran(), ug.toFortran());
+  void Increment::setAtlas(atlas::FieldSet * afieldset) const {
+    soca_increment_set_atlas_f90(toFortran(), geom_->toFortran(), vars_,
+                                 afieldset->get());
   }
   // -----------------------------------------------------------------------------
-  void Increment::field_to_ug(oops::UnstructuredGrid & ug,
-                              const int & its) const {
-    soca_increment_field_to_ug_f90(toFortran(), ug.toFortran(), its);
+  void Increment::toAtlas(atlas::FieldSet * afieldset) const {
+    soca_increment_to_atlas_f90(toFortran(), geom_->toFortran(), vars_,
+                                afieldset->get());
   }
   // -----------------------------------------------------------------------------
-  void Increment::field_from_ug(const oops::UnstructuredGrid & ug,
-                                const int & its) {
-    soca_increment_field_from_ug_f90(toFortran(), ug.toFortran(), its);
+  void Increment::fromAtlas(atlas::FieldSet * afieldset) {
+    soca_increment_from_atlas_f90(toFortran(), geom_->toFortran(), vars_,
+                                  afieldset->get());
   }
   // -----------------------------------------------------------------------------
   /// I/O and diagnostics
@@ -217,7 +227,7 @@ namespace soca {
   void Increment::print(std::ostream & os) const {
     os << std::endl << "  Valid time: " << validTime();
     int n0, nf;
-    soca_increment_sizes_f90(keyFlds_, n0, n0, n0, n0, n0, nf);
+    soca_increment_sizes_f90(keyFlds_, n0, n0, n0, nf);
     std::vector<double> zstat(3*nf);
     soca_increment_gpnorm_f90(keyFlds_, nf, zstat[0]);
     for (int jj = 0; jj < nf; ++jj) {
@@ -251,8 +261,56 @@ namespace soca {
   void Increment::updateTime(const util::Duration & dt) {time_ += dt;}
 
   // -----------------------------------------------------------------------------
+  /// Serialization
+  // -----------------------------------------------------------------------------
+  size_t Increment::serialSize() const {
+    // Field
+    size_t nn;
+    soca_increment_serial_size_f90(toFortran(), geom_->toFortran(), nn);
 
-  boost::shared_ptr<const Geometry> Increment::geometry() const {
+    // Magic factor
+    nn += 1;
+
+    // Date and time
+    nn += time_.serialSize();
+    return nn;
+  }
+  // -----------------------------------------------------------------------------
+  constexpr double SerializeCheckValue = -54321.98765;
+  void Increment::serialize(std::vector<double> & vect) const {
+    // Serialize the field
+    size_t nn;
+    soca_increment_serial_size_f90(toFortran(), geom_->toFortran(), nn);
+    std::vector<double> vect_field(nn, 0);
+    vect.reserve(vect.size() + nn + 1 + time_.serialSize());
+    soca_increment_serialize_f90(toFortran(), geom_->toFortran(), nn,
+                                 vect_field.data());
+    vect.insert(vect.end(), vect_field.begin(), vect_field.end());
+
+    // Magic value placed in serialization; used to validate deserialization
+    vect.push_back(SerializeCheckValue);
+
+    // Serialize the date and time
+    time_.serialize(vect);
+  }
+  // -----------------------------------------------------------------------------
+  void Increment::deserialize(const std::vector<double> & vect,
+                              size_t & index) {
+    // Deserialize the field
+
+    soca_increment_deserialize_f90(toFortran(), geom_->toFortran(), vect.size(),
+                                   vect.data(), index);
+
+    // Use magic value to validate deserialization
+    ASSERT(vect.at(index) == SerializeCheckValue);
+    ++index;
+
+    // Deserialize the date and time
+    time_.deserialize(vect, index);
+  }
+  // -----------------------------------------------------------------------------
+
+  std::shared_ptr<const Geometry> Increment::geometry() const {
     return geom_;
   }
   // -----------------------------------------------------------------------------

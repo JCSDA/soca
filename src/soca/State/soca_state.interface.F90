@@ -22,8 +22,6 @@ use soca_state_mod
 use soca_state_reg
 use ufo_geovals_mod_c, only: ufo_geovals_registry
 use ufo_geovals_mod, only: ufo_geovals
-use ufo_locs_mod_c, only: ufo_locs_registry
-use ufo_locs_mod, only: ufo_locs
 
 implicit none
 private
@@ -239,9 +237,9 @@ end subroutine soca_state_rotate2north_c
 
 ! ------------------------------------------------------------------------------
 
-subroutine soca_state_sizes_c(c_key_fld, nx, ny, nzo, nzi, ncat, nf) bind(c,name='soca_state_sizes_f90')
+subroutine soca_state_sizes_c(c_key_fld, nx, ny, nzo, nf) bind(c,name='soca_state_sizes_f90')
     integer(c_int),         intent(in) :: c_key_fld
-    integer(kind=c_int), intent(inout) :: nx, ny, nzo, nzi, ncat, nf
+    integer(kind=c_int), intent(inout) :: nx, ny, nzo, nf
 
     type(soca_state), pointer :: fld
 
@@ -250,8 +248,6 @@ subroutine soca_state_sizes_c(c_key_fld, nx, ny, nzo, nzi, ncat, nf) bind(c,name
     nx = size(fld%geom%lon,1)
     ny = size(fld%geom%lon,2)
     nzo = fld%geom%nzo
-    nzi = fld%geom%nzi
-    ncat = fld%geom%ncat
     nf = size(fld%fields)
 
 end subroutine soca_state_sizes_c
@@ -271,9 +267,108 @@ subroutine soca_state_change_resol_c(c_key_fld,c_key_rhs) bind(c,name='soca_stat
       fld%geom%nzo==rhs%geom%nzo ) then
       call fld%copy(rhs)
     else
-      call fld%convert(rhs)      
+      call fld%convert(rhs)
     endif
 
 end subroutine soca_state_change_resol_c
+  ! ------------------------------------------------------------------------------
+
+  subroutine soca_state_serial_size_c(c_key_self,c_key_geom,c_vec_size) bind (c,name='soca_state_serial_size_f90')
+
+  implicit none
+  integer(c_int), intent(in) :: c_key_self
+  integer(c_int), intent(in) :: c_key_geom
+  integer(c_size_t), intent(out) :: c_vec_size
+
+  type(soca_state), pointer :: self
+  type(soca_geom),  pointer :: geom
+  integer :: vec_size
+
+  call soca_state_registry%get(c_key_self,self)
+  call soca_geom_registry%get(c_key_geom,geom)
+
+  call self%serial_size(geom, vec_size)
+  c_vec_size = vec_size
+
+  end subroutine soca_state_serial_size_c
+
+  ! ------------------------------------------------------------------------------
+
+  subroutine soca_state_serialize_c(c_key_self,c_key_geom,c_vec_size,c_vec) bind (c,name='soca_state_serialize_f90')
+
+  implicit none
+  integer(c_int), intent(in) :: c_key_self
+  integer(c_int), intent(in) :: c_key_geom
+  integer(c_size_t), intent(in) :: c_vec_size
+  real(c_double), intent(out) :: c_vec(c_vec_size)
+
+  type(soca_state), pointer :: self
+  type(soca_geom),  pointer :: geom
+
+  integer :: vec_size
+
+  vec_size = c_vec_size
+  call soca_state_registry%get(c_key_self,self)
+  call soca_geom_registry%get(c_key_geom,geom)
+
+  call self%serialize(geom, vec_size, c_vec)
+
+  end subroutine soca_state_serialize_c
+
+  ! ------------------------------------------------------------------------------
+
+  subroutine soca_state_deserialize_c(c_key_self,c_key_geom,c_vec_size,c_vec,c_index) bind (c,name='soca_state_deserialize_f90')
+
+  implicit none
+  integer(c_int), intent(in) :: c_key_self
+  integer(c_int), intent(in) :: c_key_geom
+  integer(c_size_t), intent(in) :: c_vec_size
+  real(c_double), intent(in) :: c_vec(c_vec_size)
+  integer(c_size_t), intent(inout) :: c_index
+
+  type(soca_state), pointer :: self
+  type(soca_geom),  pointer :: geom
+  integer :: vec_size, idx
+
+  vec_size = c_vec_size
+  idx = c_index
+  call soca_state_registry%get(c_key_self,self)
+  call soca_geom_registry%get(c_key_geom,geom)
+
+  call self%deserialize(geom,vec_size,c_vec, idx)
+  c_index=idx
+
+  end subroutine soca_state_deserialize_c
+
+! ------------------------------------------------------------------------------
+
+subroutine soca_state_logtrans_c(c_key_self, c_trvars) bind(c,name='soca_state_logtrans_f90')
+  integer(c_int), intent(in)     :: c_key_self
+  type(c_ptr), value, intent(in) :: c_trvars
+
+  type(soca_state), pointer :: self
+  type(oops_variables) :: trvars
+
+  trvars = oops_variables(c_trvars)
+
+  call soca_state_registry%get(c_key_self,self)
+  call self%logexpon(transfunc="log", trvars=trvars)
+
+end subroutine soca_state_logtrans_c
+
+! ------------------------------------------------------------------------------
+subroutine soca_state_expontrans_c(c_key_self, c_trvars) bind(c,name='soca_state_expontrans_f90')
+  integer(c_int), intent(in)     :: c_key_self
+  type(c_ptr), value, intent(in) :: c_trvars
+
+  type(soca_state), pointer :: self
+  type(oops_variables) :: trvars
+
+  trvars = oops_variables(c_trvars)
+
+  call soca_state_registry%get(c_key_self,self)
+  call self%logexpon(transfunc="expon", trvars=trvars)
+
+end subroutine soca_state_expontrans_c
 
 end module soca_state_mod_c

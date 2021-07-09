@@ -21,12 +21,17 @@
 #include "ufo/Locations.h"
 
 // Forward declarations
+namespace oops {
+  class Variables;
+}
+
 namespace ufo {
   class GeoVaLs;
 }
 namespace soca {
   class Geometry;
   class State;
+  class Model2GeoVaLs;
 }
 
 //-----------------------------------------------------------------------------
@@ -43,7 +48,12 @@ class GetValues : public util::Printable,
   static const std::string classname() {return "soca::GetValues";}
 
 /// saves all locations locs to use during filling GeoVaLs
+<<<<<<< HEAD
   GetValues(const Geometry &, const ufo::Locations & locs, const oops::Variables &);
+=======
+  GetValues(const Geometry &, const ufo::Locations & locs,
+            const eckit::Configuration & config);
+>>>>>>> develop
   virtual ~GetValues();
 
   /// fills in geovals for all observations in the timeframe (t1, t2],
@@ -63,6 +73,7 @@ class GetValues : public util::Printable,
   F90getval keyGetValues_;
   ufo::Locations locs_;
   std::shared_ptr<const Geometry> geom_;
+  std::unique_ptr<Model2GeoVaLs> model2geovals_;
 };
 // -----------------------------------------------------------------------------
 

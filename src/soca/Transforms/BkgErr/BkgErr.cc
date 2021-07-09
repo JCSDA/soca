@@ -10,25 +10,41 @@
 
 #include "soca/Geometry/Geometry.h"
 #include "soca/Increment/Increment.h"
-#include "soca/State/State.h"
 #include "soca/Transforms/BkgErr/BkgErr.h"
 #include "soca/Transforms/BkgErr/BkgErrFortran.h"
+#include "soca/State/State.h"
+#include "soca/Traits.h"
 
 #include "eckit/config/Configuration.h"
 
+#include "oops/interface/LinearVariableChange.h"
 #include "oops/base/Variables.h"
 #include "oops/util/Logger.h"
 
 using oops::Log;
 
 namespace soca {
+
+  // -----------------------------------------------------------------------------
+  static oops::LinearVariableChangeMaker<Traits,
+            oops::LinearVariableChange<Traits, BkgErr> >
+            makerLinearVariableChangeBkgErr_("BkgErrSOCA");
+
   // -----------------------------------------------------------------------------
   BkgErr::BkgErr(const State & bkg,
                  const State & traj,
                  const Geometry & geom,
-                 const eckit::Configuration & conf): traj_(traj) {
+                 const eckit::Configuration & conf) {
     const eckit::Configuration * configc = &conf;
-    soca_bkgerr_setup_f90(keyFtnConfig_, &configc, traj_.toFortran());
+
+    // Interpolate trajectory to the geom resolution
+    State traj_at_geomres(geom, traj);
+
+    // Read/setup the diagonal of B
+    soca_bkgerr_setup_f90(keyFtnConfig_,
+                          &configc,
+                          traj_at_geomres.toFortran(),
+                          geom.toFortran());
   }
   // -----------------------------------------------------------------------------
   BkgErr::~BkgErr() {

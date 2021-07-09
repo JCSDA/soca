@@ -18,7 +18,7 @@
 
 #include "eckit/config/LocalConfiguration.h"
 #include "oops/base/PostProcessor.h"
-#include "oops/parallel/mpi/mpi.h"
+#include "oops/mpi/mpi.h"
 #include "oops/runs/Application.h"
 #include "oops/util/DateTime.h"
 #include "oops/util/Duration.h"
@@ -28,7 +28,7 @@ namespace soca {
 
   class CheckpointModel : public oops::Application {
    public:
-    explicit CheckpointModel(const eckit::mpi::Comm & comm = oops::mpi::comm())
+    explicit CheckpointModel(const eckit::mpi::Comm & comm = oops::mpi::world())
       : Application(comm) {}
     static const std::string classname() {return "soca::CheckpointModel";}
 
@@ -44,12 +44,12 @@ namespace soca {
       //  Setup state to write in the restart
       const eckit::LocalConfiguration backgroundConfig(fullConfig,
                                                        "background");
-      State xb(resol, model.variables(), backgroundConfig);
+      State xb(resol, backgroundConfig);
       oops::Log::test() << "input background: " << std::endl << xb << std::endl;
 
       //  Setup state to write in the restart
       const eckit::LocalConfiguration analysisConfig(fullConfig, "analysis");
-      State xa(resol, model.variables(), analysisConfig);
+      State xa(resol, analysisConfig);
       oops::Log::test() << "analysis: " << std::endl << xa << std::endl;
 
       //  Initialize model

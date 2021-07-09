@@ -10,9 +10,8 @@ use soca_fields_mod
 use soca_increment_mod
 use soca_convert_state_mod
 use oops_variables_mod
-use soca_geostrophy_mod
 use kinds, only: kind_real
-use fckit_log_module, only: log, fckit_log
+use fckit_log_module, only: fckit_log
 
 implicit none
 private
@@ -31,6 +30,7 @@ contains
   ! misc
   procedure :: rotate => soca_state_rotate
   procedure :: convert => soca_state_convert
+  procedure :: logexpon => soca_state_logexpon
 
 end type
 
@@ -44,11 +44,7 @@ subroutine soca_state_create(self, geom, vars)
   type(soca_geom),  pointer, intent(inout) :: geom
   type(oops_variables),      intent(inout) :: vars
 
-  ! additional internal fields need to be created
-  call vars%push_back("mld")
-  call vars%push_back("layer_depth")
-
-  ! continue with normal fields initialization
+  ! continue with fields initialization by base class
   call self%soca_fields%create(geom, vars)
 end subroutine soca_state_create
 
@@ -115,8 +111,6 @@ subroutine soca_state_add_incr(self, rhs)
   class(soca_state),  intent(inout) :: self
   class(soca_increment), intent(in) :: rhs
 
-  integer, save :: cnt_outer = 1
-  character(len=800) :: filename, str_cnt
   type(soca_field), pointer :: fld, fld_r
   integer :: i, k
 
@@ -124,10 +118,7 @@ subroutine soca_state_add_incr(self, rhs)
   real(kind=kind_real) :: amin = 1e-6_kind_real
   real(kind=kind_real) :: amax = 10.0_kind_real
   real(kind=kind_real), allocatable :: alpha(:,:), aice_bkg(:,:), aice_ana(:,:)
-  type(soca_geostrophy_type) :: geostrophy
   type(soca_fields) :: incr
-  type(soca_field), pointer :: t, s, u, v, h, dt, ds, du, dv
-
 
   ! make sure rhs is a subset of self
   call rhs%check_subset(self)
@@ -135,82 +126,13 @@ subroutine soca_state_add_incr(self, rhs)
   ! Make a copy of the increment
   call incr%copy(rhs)
 
-  ! Compute geostrophic increment
-  ! TODO Move inside of the balance operator.
-  !      Will need to be removed when assimilating ocean current or when using
-  !      ensemble derived increments (ensemble cross-covariances that include currents)
-  if (self%has('hocn').and.self%has('tocn').and.self%has('socn').and.&
-      self%has('uocn').and.self%has('vocn')) then
-     ! Get necessary background fields needed to compute geostrophic perturbations
-     call self%get("tocn", t)
-     call self%get("socn", s)
-     call self%get("hocn", h)
-
-     ! Make a copy of the increment and get the needed pointers
-     call incr%get("tocn", dt)
-     call incr%get("socn", ds)
-     call incr%get("uocn", du)
-     call incr%get("vocn", dv)
-
-     ! Initialize du and dv to 0
-     du%val = 0.0_kind_real
-     dv%val = 0.0_kind_real
-
-     ! Compute the geostrophic increment
-     call geostrophy%setup(self%geom, h%val)
-     call geostrophy%tl(h%val, t%val, s%val,&
-          dt%val, ds%val, du%val, dv%val, self%geom)
-     call geostrophy%delete()
-  end if
-
-  ! Colocate increment fields with h-grid
-  call incr%colocate('h')
 
   ! for each field that exists in incr, add to self
   do i=1,size(incr%fields)
     fld_r => incr%fields(i)
     call self%get(fld_r%name, fld)
-
-    select case (fld%name)
-    case ('cicen')
-      ! NOTE: sea ice concentration is special
-
-      ! compute background rescaling
-      allocate(alpha, mold=fld_r%val(:,:,1))
-      allocate(aice_bkg, mold=alpha)
-      allocate(aice_ana, mold=alpha)
-      aice_bkg  = sum(fld%val(:,:,:), dim=3)
-      aice_ana  = aice_bkg + sum(fld_r%val(:,:,:), dim=3)
-      where (aice_ana < 0.0_kind_real) aice_ana = 0.0_kind_real
-      where (aice_ana > 1.0_kind_real) aice_ana = 1.0_kind_real
-      alpha = 1.0_kind_real
-      where ( aice_bkg > min_ice) alpha = aice_ana / aice_bkg
-
-      ! limit size of increment
-      where ( alpha > amax ) alpha = amax
-      where ( alpha < amin ) alpha = amin
-
-      ! add fraction of increment
-      do k=1,fld%nz
-        fld%val(:,:,k) = alpha * fld%val(:,:,k)
-      end do
-
-    case default
-      ! everyone else is normal
-      fld%val = fld%val + fld_r%val
-    end select
+    fld%val = fld%val + fld_r%val
   end do
-
-  ! Save increment for outer loop cnt_outer
-  write(str_cnt,*) cnt_outer
-  filename='incr.'//adjustl(trim(str_cnt))//'.nc'
-
-  ! Save increment and clean memory
-  call incr%write_file(filename)
-  call incr%delete()
-
-  ! Update outer loop counter
-  cnt_outer = cnt_outer + 1
 
 end subroutine soca_state_add_incr
 
@@ -244,18 +166,73 @@ subroutine soca_state_convert(self, rhs)
   class(soca_state), intent(in)   :: rhs   ! source
   integer :: n
   type(soca_convertstate_type) :: convert_state
-  type(soca_field), pointer :: field1, field2, hocn1, hocn2 
+  type(soca_field), pointer :: field1, field2, hocn1, hocn2, layer_depth
 
   call rhs%get("hocn", hocn1)
   call self%get("hocn", hocn2)
   call convert_state%setup(rhs%geom, self%geom, hocn1, hocn2)
   do n = 1, size(rhs%fields)
+    if (rhs%fields(n)%name=='layer_depth') cycle ! skip layer_depth interpolation
     field1 => rhs%fields(n)
     call self%get(trim(field1%name),field2)
-    if (field1%io_file=="ocn" .or. field1%io_file=="sfc" .or. field1%io_file=="ice")  &
+    if (field1%metadata%io_file=="ocn" .or. field1%metadata%io_file=="sfc" .or. field1%metadata%io_file=="ice")  &
     call convert_state%change_resol(field1, field2, rhs%geom, self%geom)
+    ! Insure that positive definite variables are still >0
+    if (rhs%fields(n)%metadata%property=='positive_definite') then
+       where (field2%val<0.0)
+          field2%val=0.0
+       end where
+    end if
   end do !n
+
+  ! Set layer depth for new grid
+  call self%get("layer_depth", layer_depth)
+  call self%geom%thickness2depth(hocn2%val, layer_depth%val)
   call convert_state%clean()
 end subroutine soca_state_convert
+
+! ------------------------------------------------------------------------------
+!> Apply logarithmic and exponential transformations
+subroutine soca_state_logexpon(self, transfunc, trvars)
+  class(soca_state),  intent(inout) :: self
+  character(len=*),      intent(in) :: transfunc ! "log" or "expon"
+  type(oops_variables),  intent(in) :: trvars
+
+  integer :: z, i
+  type(soca_field), pointer :: trocn
+  real(kind=kind_real), allocatable :: trn(:,:,:)
+  real(kind=kind_real) :: min_val = 1e-6_kind_real
+  character(len=64) :: tr_names
+
+  do i=1, trvars%nvars()
+    ! get a list variables to be transformed and make a copy
+    tr_names = trim(trvars%variable(i))
+    if (self%has(tr_names)) then
+      call fckit_log%info("transforming "//trim(tr_names))
+      call self%get(tr_names, trocn)
+    else
+      ! Skip if no variable found.
+      call fckit_log%info("not transforming "//trim(tr_names))
+      cycle
+    end if
+    allocate(trn(size(trocn%val,1),size(trocn%val,2),size(trocn%val,3)))
+    trn = trocn%val
+
+    select case(trim(transfunc))
+    case("log")   ! apply logarithmic transformation
+      trocn%val = log(trn + min_val)
+    case("expon") ! Apply exponential transformation
+      trocn%val = exp(trn) - min_val
+    end select
+
+    ! update halos
+    call trocn%update_halo(self%geom)
+
+    ! deallocate trn for next variable
+    deallocate(trn)
+  end do
+end subroutine soca_state_logexpon
+! ------------------------------------------------------------------------------
+
 
 end module

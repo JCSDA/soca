@@ -9,6 +9,7 @@
 #define SOCA_GEOMETRY_GEOMETRY_H_
 
 #include <fstream>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -26,6 +27,18 @@
 #include "oops/util/ObjectCounter.h"
 #include "oops/util/Printable.h"
 
+// Forward declarations
+namespace atlas {
+  class FieldSet;
+  class FunctionSpace;
+  namespace functionspace {
+    class PointCloud;
+  }
+}
+namespace oops {
+  class Variables;
+}
+
 // -----------------------------------------------------------------------------
 
 namespace soca {
@@ -42,7 +55,8 @@ namespace soca {
 
       GeometryIterator begin() const;
       GeometryIterator end() const;
-
+      std::vector<size_t> variableSizes(const oops::Variables & vars) const;
+      std::vector<double> verticalCoord(std::string &) const {return {};}
 
       int& toFortran() {return keyGeom_;}
       const int& toFortran() const {return keyGeom_;}
@@ -55,6 +69,9 @@ namespace soca {
         return conf.getBool("notocean.init", false);
       }
 
+      atlas::FunctionSpace * atlasFunctionSpace() const;
+      atlas::FieldSet * atlasFieldSet() const;
+
    private:
       Geometry & operator=(const Geometry &);
       void print(std::ostream &) const;
@@ -63,6 +80,8 @@ namespace soca {
       eckit::LocalConfiguration atmconf_;
       bool initatm_;
       FmsInput fmsinput_;
+      std::unique_ptr<atlas::functionspace::PointCloud> atlasFunctionSpace_;
+      std::unique_ptr<atlas::FieldSet> atlasFieldSet_;
   };
   // -----------------------------------------------------------------------------
 

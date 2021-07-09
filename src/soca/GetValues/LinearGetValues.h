@@ -14,7 +14,6 @@
 
 #include "soca/Fortran.h"
 
-#include "oops/base/Variables.h"
 #include "oops/util/ObjectCounter.h"
 #include "oops/util/Printable.h"
 
@@ -24,10 +23,11 @@
 namespace soca {
   class Increment;
   class State;
+  class Model2GeoVaLs;
+  class LinearModel2GeoVaLs;
 }
 namespace ufo {
   class GeoVaLs;
-  class Locations;
 }
 
 //-----------------------------------------------------------------------------
@@ -44,7 +44,8 @@ class LinearGetValues : public util::Printable,
   static const std::string classname() {return "soca::LinearGetValues";}
 
   ///  Constructor, destructor
-  LinearGetValues(const Geometry &, const ufo::Locations &, const oops::Variables &);
+  LinearGetValues(const Geometry &, const ufo::Locations &,
+                  const eckit::Configuration &);
   virtual ~LinearGetValues();
 
   /// Trajectory for the linearized interpolation
@@ -68,6 +69,8 @@ class LinearGetValues : public util::Printable,
   F90getval keyLinearGetValues_;
   ufo::Locations locs_;
   std::shared_ptr<const Geometry> geom_;
+  std::unique_ptr<Model2GeoVaLs> model2geovals_;
+  std::unique_ptr<LinearModel2GeoVaLs> linearmodel2geovals_;
 };
 // -----------------------------------------------------------------------------
 

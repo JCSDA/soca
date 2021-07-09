@@ -8,43 +8,34 @@
 # SOCA
 ################################################################################
 
-cmake_minimum_required( VERSION 3.3.2 FATAL_ERROR )
+cmake_minimum_required( VERSION 3.12 )
+project( soca VERSION 0.0.0 LANGUAGES C CXX Fortran)
 
-project( soca C CXX Fortran)
-
-set( CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake;${CMAKE_MODULE_PATH})
-
-#set( ECBUILD_DEFAULT_BUILD_TYPE Release )
-set( ENABLE_OS_TESTS           OFF CACHE BOOL "Disable OS tests" FORCE )
-set( ENABLE_LARGE_FILE_SUPPORT OFF CACHE BOOL "Disable testing of large file support" FORCE )
-set( ENABLE_MPI ON CACHE BOOL "Compile with MPI" )
-
+find_package(ecbuild 3.3.2 REQUIRED)
 include( ecbuild_system NO_POLICY_SCOPE )
-
-ecbuild_requires_macro_version( 2.5 )
-
-################################################################################
-# Project
-################################################################################
-
 ecbuild_declare_project()
 
-ecbuild_enable_fortran( REQUIRED )
-ecbuild_add_cxx11_flags()
-
-set( SOCA_LINKER_LANGUAGE CXX )
+list( APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include( soca_compiler_flags )
 
 ################################################################################
 # Dependencies
 ################################################################################
-# Boost
-set( Boost_MINIMUM_VERSION "1.47" )
-include_directories( ${Boost_INCLUDE_DIR} )
-
-# NetCDF
-find_package( NetCDF REQUIRED COMPONENTS Fortran )
+find_package( NetCDF REQUIRED COMPONENTS Fortran)
+find_package( gsl-lite REQUIRED HINTS $ENV{gsl_list_DIR})
+find_package( eckit  1.11.6   REQUIRED)
+find_package( fckit  0.7.0    REQUIRED)
+find_package( atlas  0.20.2   REQUIRED)
+find_package( oops   1.0.0    REQUIRED)
+find_package( saber  1.0.0    REQUIRED)
+find_package( ioda   1.0.0    REQUIRED)
+find_package( ufo    1.0.0    REQUIRED)
+find_package( fms    2020.4.0 REQUIRED)
+find_package( mom6   2020.4.0 REQUIRED)
+find_package( crtm   2.2.3)
 include_directories( ${NETCDF_INCLUDE_DIRS} )
 
+<<<<<<< HEAD
 # eckit
 ecbuild_use_package( PROJECT eckit VERSION 1.1.0 REQUIRED )
 include_directories( ${ECKIT_INCLUDE_DIRS} )
@@ -117,16 +108,16 @@ list( APPEND SOCA_EXTRA_DEFINITIONS   ${${TPL}_DEFINITIONS}  ${${TPL}_TPL_DEFINI
 list( APPEND SOCA_EXTRA_INCLUDE_DIRS  ${${TPL}_INCLUDE_DIRS} ${${TPL}_TPL_INCLUDE_DIRS} )
 list( APPEND SOCA_EXTRA_LIBRARIES     ${${TPL}_LIBRARIES}    ${${TPL}_TPL_LIBRARIES}    )
 endforeach()
+=======
+>>>>>>> develop
 
 ################################################################################
 # Sources
 ################################################################################
-include( soca_compiler_flags )
-include_directories( ${SOCA_INCLUDE_DIRS} ${SOCA_EXTRA_INCLUDE_DIRS} )
+set( SOCA_LINKER_LANGUAGE CXX)
 
 add_subdirectory( src )
 add_subdirectory( test )
-add_subdirectory( scripts )
 
 # Build Doxygen documentation
 add_subdirectory( Documents )

@@ -10,27 +10,41 @@
 
 #include "soca/Geometry/Geometry.h"
 #include "soca/Increment/Increment.h"
-#include "soca/State/State.h"
 #include "soca/Transforms/HorizFilt/HorizFilt.h"
 #include "soca/Transforms/HorizFilt/HorizFiltFortran.h"
+#include "soca/State/State.h"
+#include "soca/Traits.h"
 
 #include "eckit/config/Configuration.h"
 
+#include "oops/interface/LinearVariableChange.h"
 #include "oops/util/abor1_cpp.h"
 #include "oops/util/Logger.h"
 
 namespace soca {
+
+  // -----------------------------------------------------------------------------
+  static oops::LinearVariableChangeMaker<Traits,
+              oops::LinearVariableChange<Traits, HorizFilt> >
+              makerLinearVariableChangeHorizFilt_("HorizFiltSOCA");
+
   // -----------------------------------------------------------------------------
   HorizFilt::HorizFilt(const State & bkg,
                  const State & traj,
                  const Geometry & geom,
                  const eckit::Configuration & conf):
-    geom_(new Geometry(geom)), vars_(conf), traj_(traj) {
+    geom_(new Geometry(geom)),
+    vars_(conf, "filter variables") {
     const eckit::Configuration * configc = &conf;
+
+    // Interpolate trajectory to the geom resolution
+    State traj_at_geomres(geom, traj);
+
+    // Compute averaging weights
     soca_horizfilt_setup_f90(keyFtnConfig_,
                              &configc,
                              geom_->toFortran(),
-                             traj_.toFortran(),
+                             traj_at_geomres.toFortran(),
                              vars_);
 
     // Get number of iterations
