@@ -24,15 +24,10 @@ namespace soca {
 /// Constructor, destructor
 // -----------------------------------------------------------------------------
 LinearGetValues::LinearGetValues(const Geometry & geom,
-<<<<<<< HEAD
-                                 const ufo::Locations & locs, const oops::Variables &)
-  : locs_(locs), geom_(new Geometry(geom))
-=======
                                  const ufo::Locations & locs,
                                  const eckit::Configuration &config)
   : locs_(locs), geom_(new Geometry(geom)),
     model2geovals_(new Model2GeoVaLs(geom, config))
->>>>>>> develop
 {
   soca_getvalues_create_f90(keyLinearGetValues_,
                             geom.toFortran(),

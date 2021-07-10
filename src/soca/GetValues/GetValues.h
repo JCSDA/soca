@@ -14,7 +14,6 @@
 
 #include "soca/Fortran.h"
 
-#include "oops/base/Variables.h"
 #include "oops/util/ObjectCounter.h"
 #include "oops/util/Printable.h"
 
@@ -48,12 +47,8 @@ class GetValues : public util::Printable,
   static const std::string classname() {return "soca::GetValues";}
 
 /// saves all locations locs to use during filling GeoVaLs
-<<<<<<< HEAD
-  GetValues(const Geometry &, const ufo::Locations & locs, const oops::Variables &);
-=======
   GetValues(const Geometry &, const ufo::Locations & locs,
             const eckit::Configuration & config);
->>>>>>> develop
   virtual ~GetValues();
 
   /// fills in geovals for all observations in the timeframe (t1, t2],

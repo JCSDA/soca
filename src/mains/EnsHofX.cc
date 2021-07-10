@@ -15,10 +15,6 @@
 int main(int argc,  char ** argv) {
   oops::Run run(argc, argv);
   ufo::instantiateObsFilterFactory<ufo::ObsTraits>();
-<<<<<<< HEAD
-  oops::EnsHofX<soca::Traits, ufo::ObsTraits> hofx;
-=======
   oops::EnsembleApplication<oops::HofX4D <soca::Traits, ufo::ObsTraits> > hofx;
->>>>>>> develop
   return run.execute(hofx);
 }

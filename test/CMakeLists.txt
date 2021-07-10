@@ -12,6 +12,7 @@ set( soca_test_input
   testinput/checkpointmodel.yml
   testinput/convertstate.yml
   testinput/convertstate_changevar.yml
+  testinput/coupled_hofx_crtm.yml
   testinput/diffstates.yml
   testinput/dirac_bump_cov.yml
   testinput/dirac_horizfilt.yml
@@ -659,6 +660,10 @@ if( ${crtm_FOUND} )
                 EXE  soca_hofx3d.x
                 TEST_DEPENDS test_soca_gridgen )
 endif()
+
+soca_add_test( NAME coupled_hofx_crtm
+               EXE  soca_coupledhofx.x
+               TEST_DEPENDS test_soca_gridgen )
 
 soca_add_test( NAME hofx_4d
                EXE  soca_hofx.x

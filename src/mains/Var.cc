@@ -10,10 +10,6 @@
  */
 
 #include "soca/Traits.h"
-<<<<<<< HEAD:src/mains/3DVar.cc
-#include "soca/Transforms/instantiateBalanceOpFactory.h"
-=======
->>>>>>> develop:src/mains/Var.cc
 #include "ufo/ObsTraits.h"
 #include "ufo/instantiateObsFilterFactory.h"
 #include "oops/runs/Run.h"
@@ -24,16 +20,10 @@
 
 int main(int argc,  char ** argv) {
   oops::Run run(argc, argv);
-<<<<<<< HEAD:src/mains/3DVar.cc
-  soca::instantiateBalanceOpFactory();
-  ufo::instantiateObsFilterFactory<ufo::ObsTraits>();
-  saber::instantiateLocalizationFactory<soca::Traits>();
-=======
   oops::instantiateModelFactory<soca::Traits>();
   ufo::instantiateObsFilterFactory<ufo::ObsTraits>();
   saber::instantiateLocalizationFactory<soca::Traits>();
   saber::instantiateCovarFactory<soca::Traits>();
->>>>>>> develop:src/mains/Var.cc
   oops::Variational<soca::Traits, ufo::ObsTraits> var;
   return run.execute(var);
 }

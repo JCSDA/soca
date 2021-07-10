@@ -19,13 +19,8 @@
 
 int main(int argc,  char ** argv) {
   oops::Run run(argc, argv);
-<<<<<<< HEAD
-  ufo::instantiateObsFilterFactory<ufo::ObsTraits>();
-  oops::HofX<soca::Traits, ufo::ObsTraits> hofx;
-=======
   oops::instantiateModelFactory<soca::Traits>();
   ufo::instantiateObsFilterFactory<ufo::ObsTraits>();
   oops::HofX4D<soca::Traits, ufo::ObsTraits> hofx;
->>>>>>> develop
   return run.execute(hofx);
 }

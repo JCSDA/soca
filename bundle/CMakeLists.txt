@@ -50,6 +50,32 @@ if ( BUILD_FMS )
   ecbuild_bundle( PROJECT fms           GIT "https://github.com/jcsda/FMS.git"                     UPDATE BRANCH release-stable )
 endif ()
 
+#===================================================================================================
+# Optional Model Interfaces
+#===================================================================================================
+
+option(BUILD_FV3JEDI "download and build fv3-jedi")
+if ( BUILD_FV3JEDI)
+  ecbuild_bundle( PROJECT fv3         GIT "https://github.com/jcsda/GFDL_atmos_cubed_sphere.git"          BRANCH release-stable UPDATE )
+  ecbuild_bundle( PROJECT femps       GIT "https://github.com/jcsda-internal/femps.git"                   BRANCH develop UPDATE )
+  ecbuild_bundle( PROJECT fv3-jedi-lm GIT "https://github.com/jcsda-internal/fv3-jedi-linearmodel.git"    BRANCH develop UPDATE )
+  ecbuild_bundle( PROJECT fv3-jedi    GIT "https://github.com/jcsda-internal/fv3-jedi.git"                BRANCH develop UPDATE )
+
+  # fv3-jedi test data repository
+  find_branch_name(REPO_DIR_NAME fv3-jedi)
+  if( NOT DEFINED ENV{LOCAL_PATH_JEDI_TESTFILES} AND NOT DEFINED ${GIT_TAG_FUNC} )
+    ecbuild_bundle( PROJECT fv3-jedi-data GIT "https://github.com/JCSDA-internal/fv3-jedi-data.git" BRANCH develop UPDATE )
+  endif()
+endif ()
+
+option(BUILD_SOCACICE6 "download and build soca-cice6")
+if ( BUILD_SOCACICE6 )
+  ecbuild_bundle( PROJECT icepack       GIT "https://github.com/jcsda-internal/Icepack.git"         UPDATE BRANCH feature/ecbuild )
+  ecbuild_bundle( PROJECT cice6         GIT "https://github.com/jcsda-internal/CICE.git"            UPDATE BRANCH feature/ecbuild )
+  ecbuild_bundle( PROJECT socacice      GIT "https://github.com/jcsda-internal/soca-cice6.git"      UPDATE BRANCH develop )
+endif ()
+
+#===================================================================================================
 
 # required repositories
 
